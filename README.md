@@ -117,6 +117,8 @@ Observed in game:
 
 These checks establish the fourth-character proof of concept on this build. They do not establish long-term progression reliability, exhaustive integrity of every field in the expanded test container, other native menu operations, online safety, or compatibility without the mod. Original files are protected independently by directory preservation and hash verification.
 
+A subsequent [test with this mod absent](docs/native-compatibility-test.md) successfully booted and saved through a native character after selecting that character normally. The save shrank from 858,988 to 595,260 bytes, exactly the earlier three-character size. This strongly indicates that the extra record was discarded. A safe startup selection therefore does not establish preservation of extra characters without the mod; expanded native storage must not be their only recoverable copy.
+
 ## Development checks
 
 ```powershell

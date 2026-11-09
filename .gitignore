@@ -1,0 +1,11 @@
+/work/
+/outputs/
+/node_modules/
+*.bin
+*.dll
+*.zip
+*.dmp
+*.log
+*.user
+.vs/
+reframework/data/

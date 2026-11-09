@@ -1,4 +1,7 @@
 local M={}
+function M.write(name, value)
+    assert(json.dump_file("MHWAddSaveSlots."..name..".json",value)~=false,"Could not write "..name)
+end
 function M.read(name)
     local file=io.open("MHWAddSaveSlots."..name..".json","r")
     if not file then return {} end

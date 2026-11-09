@@ -1,55 +1,44 @@
 # MHWAddSaveSlots
 
-Experimental REFramework proof of concept for a **fourth Monster Hunter Wilds character**, selected through its own overlay.
+Experimental REFramework mod for additional **Monster Hunter Wilds** characters, selected through its own overlay. Expanded records remain in the native `data001Slot.bin`; the native three-row menu assets are unchanged.
 
-**Proven on an isolated save copy:** create an independent clone named Gupta with Palico Kirikau, enter gameplay, save, exit the game, restart, recover the fourth record from disk, and load it back into the Grand Hub. The original three entries remain present. This is a research prototype, not a production-ready slot expansion.
+The current implementation supports **3–16 entries**, independent clones, empty entries for the native new-character flow, a native-range persisted selection, versioned save backups, and an explicit conversion back to three entries. Sixteen is a conservative implementation limit, not a measured engine limit.
 
-The prototype adds a record to the existing `data001Slot.bin`. It does not create a separate fourth character file, alter the three-row menu assets, or swap characters between native slots. Directory substitution below is only the test harness protecting the user's originals.
+**Use verified copies only.** Live testing has created a fourth clone and a fresh fifth character, played the fifth character's tutorial, saved, fully restarted, and loaded the fifth character with its appearance and progress intact. Five-entry backups passed file-hash verification. Trimming completed successfully; the resulting three-entry copy booted, displayed the native three, and loaded/saved the first character with this mod absent. Capacities 6–16 have not been played. See [validation](docs/safeguards-validation.md) for the separate runtime and mocked evidence.
 
-## Tested environment
+## Environment and requirements
 
-Tested locally on 2026-11-09:
+Original live testing on 2026-11-09 used:
 
 | Component | Version |
 | --- | --- |
-| Game | Windows Steam edition, `1.042.00.03` |
-| Steam build ID | `25921695` |
+| Game | Windows Steam `1.042.00.03` |
+| Steam build | `25921695` |
 | REFramework | `v1.5.9.1+514`, built 2026-10-11 |
 | REFramework revision | `d052e8fd3fd41d0a1a33394fcf6e6c19be39b1ee` |
 
-Other versions have not been validated. The installed environment contained other mods; compatibility with a clean installation or other mod combinations has not been established. Hooks resolve managed methods by name, which does not guarantee compatibility with future builds.
+Other builds and clean installations have not been validated. Existing unrelated mods were present during the original tests. The REFramework DLL is not distributed or replaced.
 
-## Requirements
+Requirements: PowerShell **7+** for the backup companion, Steam Cloud disabled, Steam **Offline Mode**, sufficient disk space for retained snapshots, and an isolated whole-app userdata copy. The user operates Steam and the game manually. Clones retain their source's online identifiers; unique identity generation for clones and multiplayer use are outside scope. Fresh entries use the game's initializer and character editor rather than copied progression; this path completed a live fifth-character round trip.
 
-- Existing working REFramework installation; its DLL is not included or replaced.
-- Steam Cloud disabled for Wilds and Steam restarted in **Offline Mode**. Friends' offline status is insufficient. Recheck Offline Mode after restarting Steam.
-- A verified backup and an isolated copy of the whole Wilds Steam userdata directory.
-- PowerShell for isolation/recovery, with permission to rename the relevant userdata directories.
+## Install and prepare
 
-**Use copied saves only.** The clone retains the source's hunter/online identifiers. Multiplayer, Cloud synchronization, achievements, account services, and unique identity generation are outside this experiment.
-
-## Installation
-
-With Wilds closed, copy both the entry script and the entire module folder into the game's matching paths:
+With Wilds closed, copy the loader and **all** modules into the game:
 
 ```text
 reframework/autorun/MHWAddSaveSlots.lua
 reframework/autorun/MHWAddSaveSlots/
     control.lua
+    policy.lua
+    records.lua
     compat.lua
     poc.lua
     probe.lua
 ```
 
-Leave existing REFramework files and other mods in place. Without an explicitly armed isolated session, operations are read-only. REFramework's **Script Generated UI** contains discovery and selector panels; Insert toggles its input interface.
+Restart the game after script changes. Hot reload is intentionally unavailable while stateful save hooks may have outstanding transactions. Without an armed isolated session at startup, hooks are inactive and operations remain read-only.
 
-Runtime JSON files belong in `reframework/data` and must not be committed. They can contain character names, account-related data, and diagnostic addresses.
-
-## Prepare an isolated test
-
-Disable Cloud for Wilds, restart Steam in Offline Mode, then fully exit both Wilds and Steam before preparing the copy. Closing Steam's window does not exit its process.
-
-Run from the repository, replacing the example paths. `AppDirectory` is the whole `Steam/userdata/<account>/2246340` folder, not `remote` or `win64_save`.
+Disable Cloud for Wilds, set Steam Offline Mode, and fully exit Wilds and Steam. Closing Steam's window is insufficient. Start with ordinary three-entry saves whose capacity is known.
 
 ```powershell
 .\scripts\SaveSandbox.ps1 -Action Prepare `
@@ -58,86 +47,99 @@ Run from the repository, replacing the example paths. `AppDirectory` is the whol
   -GameDirectory 'C:\Program Files (x86)\Steam\steamapps\common\MonsterHunterWilds' `
   -CloudDisabled -SteamOffline
 
+.\scripts\SaveCompanion.ps1 -Action Initialize `
+  -SessionDirectory 'D:\save-tests\session-001' -Slots 3
+
 .\scripts\SaveSandbox.ps1 -Action Arm `
   -SessionDirectory 'D:\save-tests\session-001'
-```
 
-Prepare copies and hashes every file, preserves the original as `2246340.mhw4-original-<id>`, and places the verified copy at the normal app path. It writes `session.json` and `original-sha256.json` outside Git. The two switches confirm settings already established in Steam; they do not configure Steam.
-
-Prepare defaults to mutations disabled. Arm verifies the retained originals again and enables this session for 12 hours. Keep the session armed throughout creation, saving, and every restart using its four-character files. Renew with Arm before expiry if needed. Do not disarm, remove the mod, or allow the lease to expire while using expanded saves: vanilla paths can truncate the fourth record or crash when reading the saved selection. Restore the originals before ordinary play.
-
-## Create and select the fourth character
-
-1. Start Steam, verify it is still in Offline Mode, and launch Wilds with the isolated copy active.
-2. At the title screen, open **Start Game / Select Saved Data**. The native menu still has three visible rows.
-3. Use **Create Gupta + Kirikau as character 4** in the mod's overlay. If needed, press Insert to enable mouse interaction with REFramework.
-4. Use **Load Gupta + Kirikau (character 4)**. The mod completes the native selection flow using index 3.
-5. Enter offline gameplay, save normally, and use **Save and Quit**. Confirm the additional save prompt and wait until the game closes.
-6. Keep the same armed session and `MHWAddSaveSlots.native.json`, restart Wilds, reopen Select Saved Data, and use the mod's Load button again. No clone operation should run during this restart.
-
-Creation currently copies occupied slot 1 and assigns the fixed names above. It does not implement the new-character editor, fresh progression, arbitrary source selection, deletion, or a fifth slot. Before attachment, creation audits the source and clone for shared mutable managed objects; this traversal may briefly stall the game.
-
-`MHWAddSaveSlots.native.json` records expected capacity and the isolated session ID. It contains no character data; the character remains in the native save container. An empty fourth allocation is not proof of recovery, and the selector refuses to load an inactive fourth entry.
-
-## Recovery and removal
-
-After testing, fully exit Wilds and Steam, then run:
-
-```powershell
-.\scripts\SaveSandbox.ps1 -Action Restore `
+.\scripts\SaveCompanion.ps1 -Action Watch `
   -SessionDirectory 'D:\save-tests\session-001'
 ```
 
-Restore retains the experimental app directory as `2246340.mhw4-result-<id>`, restores the preserved original directory, checks every original file against its SHA-256 manifest, and disables mutation mode. Keep Cloud disabled until restoration succeeds. The retained result includes Gupta's experimental save; it is not imported into the originals.
+Prepare preserves the original directory intact, copies and verifies every file, and journals recovery paths. `-CloudDisabled` and `-SteamOffline` confirm settings already made by the user; they do not change Steam. Initialize creates a verified baseline backup; **`-Slots` is a known starting capacity supplied by the operator, not a count decoded from disk**. Do not initialize an unknown or truncated container with an assumed expanded count.
 
-For an interrupted session:
+Leave Watch running throughout the game session and restarts. It only reads active save files; its writes go to the backup store and REFramework control JSON. Start Steam manually, recheck Offline Mode, then launch Wilds. The 12-hour lease authorizes creation and trim actions. Preservation hooks remain active for an already armed process if that lease expires, but the next launch must be armed again. Never reset scripts, remove the marker, or change save directories while Wilds is running.
+
+## Select, clone, or create a fresh character
+
+1. Open **Start Game / Select Saved Data**, then press **Insert** to open REFramework before clicking the custom selector. Its controls are disabled while REFramework is closed to avoid sending the same click to the underlying native menu. The custom overlay lists every allocated entry.
+2. For a clone, choose its source and names, then **Add independent clone**. The source must be occupied. Creation audits the managed object graphs for shared mutable objects before attaching the clone.
+3. For fresh progression, choose **Add empty entry for a fresh character**, then **Create new in…** on that entry. This calls the game's factory and initializer, verifies that the record is inactive, and passes the empty index through the native selection completion flow. Complete the normal character editor yourself. An empty allocation alone is not a successfully created character.
+4. Load the desired occupied entry through the custom selector. Save normally in game and wait for **backup verified** before restarting or making another test change.
+5. Restart with the companion running and the same armed session. Check that each extra character is populated and loads without cloning it again.
+
+Creation does not overwrite or reorder existing records. Cancelling the native editor can leave an empty allocated entry; reuse its Create new button. Arbitrary deletion/reordering is not implemented. The first three entries can still be selected through the normal menu.
+
+## Persistence and backups
+
+The live `CurrentUserDataIndex` can exceed 2. The separate `cSystemCommonParam.LastUserIndex` is repaired to `0–2` on the objects used for system-save serialization, including staging copies. The fallback is the last observed native selection, or 0. Repairs never change the live character index.
+
+Save-copy destinations grow to the source capacity. Startup destinations use the capacity of the companion's last verified save snapshot. Capacity is committed only after a matched native save execution/completion and a hash-verified file copy. Separate start/end receipt files survive process exit and replacement of the runtime heartbeat. The native character file's write time must fall within that request's receipt interval; a later write cannot be attributed to an old completion. Capacity is not increased merely because a new array was allocated.
+
+Snapshots live under `SESSION/backups/snapshots/<id>/app`, with SHA-256 manifests. They are never automatically overwritten or pruned. The companion retains the latest expanded recovery point even after a valid trim. It verifies the active character-file hash against its ledger before authorizing startup. Untracked changes, including saves made with the mod absent, are retained as **unclassified** snapshots and block mutations; they cannot silently become an expanded recovery point.
+
+The save gate requires a fresh companion heartbeat and acknowledgement of the previous completed character save, including one from the previous process. A startup load waiting for that acknowledgement is deferred and retried when the backup is ready. If backups fail or the companion stops, another character save is refused instead of overwriting the only unarchived result. The game may display a save error: keep the game open, inspect the companion, and retry only after it reports ready. System-save index repair continues while the character backup completes. A disk snapshot verified by hash is evidence of byte preservation; it is not an independent decode of every character field.
+
+## Trim to three entries
+
+1. Load one of the **first three characters** and wait for the normal save flow to finish.
+2. In REFramework's **Script Generated UI → Wilds expanded characters**, choose **Prepare trim: save and back up all characters**.
+3. Wait for trim status **ready**. This requires a new successful expanded save and a verified backup.
+4. Choose **Confirm trim to three characters**. The companion durably journals the expanded snapshot before the live array can shrink.
+5. The mod retains entries 1–3 by reference, requests the game's normal save, and waits for the resulting three-entry snapshot to be verified. Wait for trim status **complete**.
+6. Exit and restart the copied-save test without this mod to validate native compatibility before using the export elsewhere. Keep the expanded snapshot and its manifest.
+
+Trimming uses the game's serializer; it does not cut bytes from an encrypted file. If a trim save fails, the retained expanded array is restored in memory and the session reports a fault. A crash or untracked partial write blocks automatic promotion of that file. Inspect the journal and retained snapshots before trying another launch. The conversion is not an atomic transaction across the game's system and character files.
+
+## Recovery, export, and removal
+
+To inspect the backup ledger or export an immutable snapshot to a **new** directory:
 
 ```powershell
-.\scripts\SaveSandbox.ps1 -Action Status `
-  -SessionDirectory 'D:\save-tests\session-001'
+.\scripts\SaveCompanion.ps1 -Action Status -SessionDirectory 'D:\save-tests\session-001'
+.\scripts\SaveCompanion.ps1 -Action Export `
+  -SessionDirectory 'D:\save-tests\session-001' `
+  -Snapshot 'SNAPSHOT_ID_FROM_LEDGER' -Destination 'D:\save-recovery\export-001'
 ```
 
-Inspect the exact paths in the journal. Restore supports interruption between directory renames and is idempotent after successful restoration. If the script cannot run, with both processes closed, preserve the current `active` directory elsewhere, rename `original` back to `active`, and verify against `original-sha256.json` before reopening Steam. Never overwrite the preserved original with experimental files or resolve a Cloud conflict over it without checking the copies.
+Export verifies all files and copies them with their manifest. It refuses existing destinations, active save paths, preserved originals, and the backup store. A snapshot whose capacity is 0 is unclassified and must not be enrolled as an expanded save. To investigate an expanded export, prepare another isolated test session with Wilds and Steam closed, preserve that session's starting copy, and use the verified export with its recorded capacity. Never experiment on the ordinary originals.
 
-Only after restoring ordinary three-character saves, remove the entry script and its same-named module folder to uninstall. The diagnostic `MHWAddSaveSlots.*.json` files can then be archived or removed. Keep the journal and manifest with retained test data. Leave the existing REFramework DLL and other mods alone.
+Backups are complete app snapshots. Restoring an older whole snapshot rolls back its native characters too. **Automatic merging of archived extras with newer native-character progress is not implemented.** Retain both versions; do not blindly replace newer native progress. The mod detects this situation and preserves recovery data rather than claiming a lossless merge.
 
-## Implementation and evidence
+After testing, fully exit Wilds and Steam yourself, then restore the ordinary originals:
 
-`poc.lua` queues UI actions for `UpdateBehavior`; it does not mutate saves in drawing callbacks. It uses `cUserSaveParam.create` and `copyFrom`, expands `cUserSaveData._Data`, verifies the current-save accessor at index 3, and drives `GUI010102.selectFinish` through its list selection. Compatibility changes run on the game's own save/load calls.
+```powershell
+.\scripts\SaveSandbox.ps1 -Action Restore -SessionDirectory 'D:\save-tests\session-001'
+```
 
-Static inspection of the tested executable found that `cUserSaveData.create` allocates three entries and `copyFrom` copies the shorter array length, returning false when lengths differ. The prototype expands a three-entry copy destination when its source contains four. It also expands the main destination before `SaveDataManager.systemRequestUserLoad` when the armed session's capacity metadata says four. No raw offset patches or hooks borrowed from RE4 are used.
+Restore retains the experimental directory as `2246340.mhw4-result-<id>`, restores the original directory, verifies every original hash, and disables mutations. The companion stops when the session leaves the isolated stage. Keep Cloud disabled until restoration succeeds.
 
-Observed in game:
+If interrupted, use `SaveSandbox.ps1 -Action Status` with the same session path. The journal gives exact paths. With both applications closed, preserve the active experimental directory, rename the journal's original directory back to active, and verify it against `original-sha256.json`. Do not overwrite preserved originals with test files or accept a Cloud conflict over them.
 
-- The clone audit visited 76,760 mutable objects on each side with zero shared objects.
-- The custom selector created and loaded Gupta/Kirikau into the Grand Hub at current index 3.
-- Expanding only the live array was insufficient: save staging dropped the fourth entry, and the next launch crashed when title code used remembered index 3.
-- Expanding the save-copy destination grew the test `data001Slot.bin` from 595,260 to 858,988 bytes. Startup still required the load-destination fix; growth alone was not treated as persistence proof.
-- With both fixes, a fresh process read four active records from disk, including Gupta/Kirikau and all three preceding entries. The creation-command file was empty. The custom selector then returned Gupta/Kirikau to the Grand Hub in `app.IngameState`, current index 3.
+Only remove the loader and its module folder after restoring ordinary saves or validating a trimmed copy. Keep the backup store and manifests. Leave the REFramework DLL and unrelated mods untouched. Runtime JSON, save files, account data, binaries, and journals stay outside Git.
 
-These checks establish the fourth-character proof of concept on this build. They do not establish long-term progression reliability, exhaustive integrity of every field in the expanded test container, other native menu operations, online safety, or compatibility without the mod. Original files are protected independently by directory preservation and hash verification.
+## Evidence and checks
 
-A subsequent [test with this mod absent](docs/native-compatibility-test.md) successfully booted and saved through a native character after selecting that character normally. The save shrank from 858,988 to 595,260 bytes, exactly the earlier three-character size. This strongly indicates that the extra record was discarded. A safe startup selection therefore does not establish preservation of extra characters without the mod; expanded native storage must not be their only recoverable copy.
+The original four-character implementation (commit `3b1cc0c`) cloned Gupta/Kirikau, audited 76,760 mutable objects on each side with zero shared objects, entered the Grand Hub, saved, and loaded the fourth record in a fresh process. A native-range startup followed by saving with the mod absent shrank the file from 858,988 to 595,260 bytes, strongly indicating loss of that fourth entry; see the [absence test](docs/native-compatibility-test.md).
 
-## Development checks
+Focused checks for the new implementation:
 
 ```powershell
 .\scripts\Test-SaveSandbox.ps1
+.\scripts\Test-SaveCompanion.ps1
+lua tests/test_safety.lua  # Lua 5.3+; Fengari also supported
 git diff --check
 ```
 
-The synthetic sandbox test covers verified copying, default-disabled mutations, explicit arming, retaining modified test data, restoring original hashes, refusing to re-arm a restored session, and repeated restoration. It does not simulate the game or prove Lua hook behavior. Live results are described separately above.
+Tests cover index separation, 5/16-entry destination growth, fresh initialization, backup acknowledgement gates, trim preparation and confirmation, unchanged native references, immutable expanded snapshots, replay, wrong-session data, corruption, and unclassified saves. An optional `-CopiedSaveDirectory` on Test-SaveCompanion checks exact byte preservation using another copy of retained saves; it does not run the game. The installed safety hooks use this build's named methods and named success enum constants, failing initialization when required metadata is unavailable.
 
-`probe.lua` captures read-only type metadata and runtime summaries on request, or every ten seconds while a test session is armed. The standalone selector is hidden outside isolated sessions. Developer command and reload JSON files are restricted to fixed actions/modules and the matching session; a command already present at Lua startup is not replayed. Saves, runtime dumps, journals, and binaries belong outside Git. Do not commit or push without a user request.
-
-## Possible next direction
-
-A separate mod-managed character library remains a possible follow-up. This experiment establishes that Wilds can play a fourth managed record and persist it with targeted compatibility hooks. Separate storage would additionally need a verified serializer, crash-safe writes, load/save routing, identity handling, and recovery behavior. That architecture is not implemented here.
+Long-term progression, every game save path, capacities above five, and an expanded five-entry boot with this mod absent need further validation. The successful absence test for this implementation used its trimmed three-entry result; the earlier four-entry absence test used a manually selected native index. The user reported minor creation-screen visual artifacts of unknown cause. [Current validation record](docs/safeguards-validation.md) separates observed results from mocks. No claim of universal save safety or game-version compatibility is made.
 
 ## References
 
 - [REFramework Lua SDK](https://refdocs.praydog.com/api/sdk.html)
+- [REFramework thread-local hook storage](https://refdocs.praydog.com/api/thread.html)
 - [Installed revision's managed-array implementation](https://github.com/praydog/REFramework/blob/d052e8fd3fd41d0a1a33394fcf6e6c19be39b1ee/shared/sdk/SystemArray.cpp)
-- [Wilds save schema and parser](https://github.com/kvasszn/ree-save-editor/tree/3de477f22352fcdd2a88751e794844947f3ebae9)
 
 Apache-2.0; see `LICENSE`. Game files, personal saves, and third-party mods are not included.

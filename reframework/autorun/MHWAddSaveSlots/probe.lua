@@ -60,6 +60,9 @@ local seeds = {
     "app.cSaveDataHelper", "app.cGameJumper", "app.TitleState", "app.PlayingState",
     "ace.GameStateType", "app.GUIID.ID", "ace.cSaveDataBase",
     "app.SoundTitleController", "app.savedata.cSystemSaveData", "app.savedata.cSystemSaveParam",
+    "app.savedata.cSystemCommonParam", "ace.SaveDataManagerBase.EXECUTE_RESULT",
+    "ace.SaveDataManagerBase.ERROR_TYPE", "app.GUI010102",
+    "ace.SaveDataManagerBase.cLoadRequest", "ace.SaveDataManagerBase.REQUEST_TYPE",
 }
 local function snapshot()
     local report = {version=1, utc=os.date("!%Y-%m-%dT%H:%M:%SZ"), types={}, objects={}, gui=seen_gui}
@@ -146,6 +149,10 @@ local function snapshot()
             end
         end
         report.current_index=manager:get_field("CurrentUserDataIndex")
+        local system=manager:get_field("_SystemSaveData")
+        local param=system and system:get_field("_Data")
+        local common=param and param:get_field("_SystemCommon")
+        report.last_user_index=common and common:get_field("LastUserIndex")
     end
     json.dump_file(prefix .. ".discovery.json", report)
     last_status = "Read-only snapshot written; slots: " .. tostring(report.slot_count)

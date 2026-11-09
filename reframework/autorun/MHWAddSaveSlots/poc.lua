@@ -1,203 +1,179 @@
-local M = {}
+local M={}
 local control=require("MHWAddSaveSlots.control")
--- A request left on disk from an earlier Lua runtime is never replayed.
-if not _G.MHWAddSaveSlots_commands then
-    _G.MHWAddSaveSlots_commands={}
-    local stale=control.read("command")
-    if stale.session_id and stale.id then _G.MHWAddSaveSlots_commands[stale.session_id..":"..stale.id]=true end
-end
-_G.MHWAddSaveSlots_commands = _G.MHWAddSaveSlots_commands or {}
-local processed = _G.MHWAddSaveSlots_commands
-local pending, last_request, last_poll = nil, nil, 0
-local message = "Isolated test prototype"
-local view = {title=false, isolated=false, slots=0, current=-1, enabled=false}
+local policy=require("MHWAddSaveSlots.policy")
+local records=require("MHWAddSaveSlots.records")
+local safety=require("MHWAddSaveSlots.compat")
+local pending,last_poll=nil,0
+local message="Experimental character library: copied saves only"
+local view={slots={},isolated=false,title=false}
+local clone_source,hunter,palico=1,"Gupta","Kirikau"
+local font=imgui.load_font(nil,28)
 local position_window=true
-_G.MHWAddSaveSlots_font=_G.MHWAddSaveSlots_font or imgui.load_font(nil,28)
-local function context()
-    local manager = sdk.get_managed_singleton("app.SaveDataManager")
-    local flow = sdk.get_managed_singleton("app.GameFlowManager")
-    local state = flow and flow:get_field("_CurrentGameState")
-    local root = manager and manager:get_field("_UserSaveData")
-    return manager, root, root and root:get_field("_Data"), state
-end
+local stale=control.read("command")
+local processed={}
+if stale.id and stale.session_id then processed[stale.session_id..":"..stale.id]=true end
 local function guard()
-    local session=control.read("session")
-    assert(control.enabled(session), "Mutation is disabled or expired; arm an isolated test session")
-    assert(_G.MHWAddSaveSlots_compat_registered and _G.MHWAddSaveSlots_load_registered,
-        "Save/load compatibility hooks are unavailable")
-    local manager,root,slots,state=context()
-    assert(state and state:get_type_definition():get_full_name()=="app.TitleState", "Return to the title screen")
-    assert(not manager:call("get_IsSaveRunning"), "Save operation in progress")
-    assert(not manager:call("get_IsSaveLoadFlowRunning"), "Save/load flow in progress")
+    safety.guard()
+    local manager,root,slots,state=records.context()
+    assert(state and state:get_type_definition():get_full_name()=="app.TitleState","Return to Select Saved Data")
+    assert(not records.busy(manager),"Save/load flow is busy")
+    policy.count(slots:get_size())
     return manager,root,slots
 end
-local function address(obj) return tostring(obj:get_address()) end
-local function audit_graph(root, original_addresses)
-    local seen, stack, count = {}, {root}, 0
-    local function push(obj)
-        if type(obj)~="userdata" then return end
-        local ok,t=pcall(function() return obj:get_type_definition() end)
-        if not ok or not t or t:is_value_type() or t:get_full_name()=="System.String" then return end
-        stack[#stack+1]=obj
-    end
-    while #stack>0 do
-        local obj=table.remove(stack)
-        local key=address(obj)
-        if not seen[key] then
-            assert(not original_addresses or not original_addresses[key], "Clone shares a mutable object with its source: "..obj:get_type_definition():get_full_name())
-            seen[key]=true; count=count+1
-            assert(count<=500000,"Object graph exceeds audit limit")
-            local t=obj:get_type_definition()
-            if t:is_array() then
-                for i=0,obj:get_size()-1 do push(obj:get_element(i)) end
-            else
-                while t do
-                    for _,f in ipairs(t:get_fields()) do
-                        if not f:is_static() then push(f:get_data(obj)) end
-                    end
-                    t=t:get_parent_type()
-                end
-            end
-        end
-    end
-    return seen,count
-end
-local function create_copy(attach)
-    local manager,root,slots=guard()
-    assert(slots and slots:get_size()==3,"Expected exactly three source slots")
-    local source=slots:get_element(0)
-    assert(source and source:get_field("Active")~=0,"Source slot 1 is empty")
-    local td=sdk.find_type_definition("app.savedata.cUserSaveParam")
-    local clone=assert(td:get_method("create"):call(nil),"Character factory returned nil")
-    clone:add_ref()
-    assert(clone:call("copyFrom(ace.cSaveDataBase)",source)==true,"Game rejected the character copy")
-    local original,n=audit_graph(source)
-    local _,m=audit_graph(clone,original)
-    local basic=clone:get_field("_BasicData")
-    basic:set_field("CharName",sdk.create_managed_string("Gupta"))
-    basic:set_field("OtomoName",sdk.create_managed_string("Kirikau"))
-    local report={source_objects=n,clone_objects=m,shared_mutable_objects=0,attached=attach}
-    if attach then
-        local expanded=assert(sdk.create_managed_array("app.savedata.cUserSaveParam",4))
-        expanded:add_ref()
-        for i=0,2 do expanded[i]=slots:get_element(i) end
-        expanded[3]=clone
-        assert(expanded:get_element(3)==clone,"Array assignment failed")
-        local previous=manager:get_field("CurrentUserDataIndex")
-        local ok,err=pcall(function()
-            root:set_field("_Data",expanded)
-            assert(root:get_field("_Data"):get_size()==4,"Array attachment failed")
-            manager:set_field("CurrentUserDataIndex",3)
-            report.index3_resolves=manager:call("getCurrentUserSaveData")==clone
-            assert(report.index3_resolves,"Current-save accessor rejected index 3")
-            -- This is capacity metadata for this isolated session, not a save.
-            local session=control.read("session")
-            assert(json.dump_file("MHWAddSaveSlots.native.json",{session_id=session.session_id,slots=4})~=false,
-                "Could not record startup capacity")
-        end)
-        manager:set_field("CurrentUserDataIndex",previous)
-        if not ok then root:set_field("_Data",slots); error(err) end
-    end
-    json.dump_file("MHWAddSaveSlots.clone-test.json",report)
-    message=attach and "Fourth record attached and accessor checked" or "Unattached clone has independent mutable data"
-end
-local function load_fourth()
-    local manager,root,slots=guard()
-    assert(slots and slots:get_size()==4,"A fourth character must exist first")
-    local fourth=slots:get_element(3)
-    assert(fourth and fourth:get_field("Active")~=0,"Fourth entry is empty; loading is refused")
+local function select_character(index, fresh)
+    local manager,_,slots=guard()
+    policy.index(index,slots:get_size())
+    local record=slots:get_element(index)
+    assert(record,"Missing character")
+    assert((record:get_field("Active")==0)==fresh,fresh and "Entry already contains a character" or "Entry is empty")
     local guis=sdk.get_managed_singleton("app.GUIManager"):get_field("_AllGUI")
-    local selector=nil
+    local selector
     for i=0,guis:get_size()-1 do
         local g=guis:get_element(i)
         if g and g:get_type_definition():get_full_name()=="app.GUI010102" then selector=g; break end
     end
     assert(selector and selector:get_field("_BaseState")==2,"Open Start Game / Select Saved Data first")
-    local list=assert(selector:get_field("_DataList"),"Character selector has no list")
-    -- The native controller reads this selection result when it closes. Its
-    -- backing list accepts four entries; no replacement UI asset is required.
-    list:call("set_ItemCount",4)
-    list:call("set_SelectedIndex",3)
-    assert(list:call("get_SelectedIndex")==3,"Native list rejected selection index 3")
-    manager:set_field("CurrentUserDataIndex",3)
-    assert(manager:call("getCurrentUserSaveData")==slots:get_element(3),"Fourth record is not current")
+    local list=assert(selector:get_field("_DataList"))
+    list:call("set_ItemCount",slots:get_size())
+    list:call("set_SelectedIndex",index)
+    assert(list:call("get_SelectedIndex")==index,"Native controller rejected selection")
+    manager:set_field("CurrentUserDataIndex",index)
+    assert(manager:call("getCurrentUserSaveData")==record,"Current-save accessor returned a different record")
     selector:call("selectFinish")
-    message="Requested Gupta through the native selection completion flow"
+    message=fresh and "Requested the native new-character flow for the empty entry" or "Requested character "..(index+1)
 end
-local actions={probe_copy=function() create_copy(false) end, append_clone=function() create_copy(true) end,
-    load_fourth=load_fourth,
-    save_fourth=function()
-        assert(control.enabled(control.read("session")),"Isolated test session is not armed")
-        local manager,root,slots,state=context()
-        assert(state and state:get_type_definition():get_full_name()=="app.IngameState","Enter gameplay first")
-        assert(slots:get_size()==4 and manager:get_field("CurrentUserDataIndex")==3,"Fourth character is not active")
-        assert(not manager:call("get_IsSaveRunning") and not manager:call("get_IsSaveLoadFlowRunning"),"Save flow is busy")
-        -- The inspected implementation explicitly permits a null callback.
-        manager:call("requestSaveDataManualSave",nil)
-        message="Requested a normal manual save; completion must be checked separately"
-    end}
+local function append(request, fresh)
+    local manager,root,slots=guard()
+    local count=slots:get_size()
+    assert(count<policy.MAX_SLOTS,"Experimental capacity limit reached")
+    local record=records.new()
+    if fresh then
+        assert(record:get_field("Active")==0,"Initializer did not produce an empty record; refusing attachment")
+    else
+        local source_index=policy.index((request.source or 1)-1,count)
+        local source=slots:get_element(source_index)
+        assert(source:get_field("Active")~=0,"Clone source is empty")
+        assert(record:call("copyFrom(ace.cSaveDataBase)",source)==true,"Game rejected clone")
+        local original,n=records.audit(source)
+        local _,m=records.audit(record,original)
+        local basic=record:get_field("_BasicData")
+        local name=request.hunter or "Gupta"
+        local cat=request.palico or "Kirikau"
+        assert(type(name)=="string" and #name>0 and #name<=48 and type(cat)=="string" and #cat>0 and #cat<=48,"Invalid clone names")
+        basic:set_field("CharName",sdk.create_managed_string(name))
+        basic:set_field("OtomoName",sdk.create_managed_string(cat))
+        control.write("clone-test",{source_objects=n,clone_objects=m,shared_mutable_objects=0,index=count})
+    end
+    local expanded=records.array(slots,count+1)
+    expanded[count]=record
+    local previous=manager:get_field("CurrentUserDataIndex")
+    local ok,err=pcall(function()
+        root:set_field("_Data",expanded)
+        manager:set_field("CurrentUserDataIndex",count)
+        assert(manager:call("getCurrentUserSaveData")==record,"New entry is not addressable")
+    end)
+    manager:set_field("CurrentUserDataIndex",previous)
+    if not ok then root:set_field("_Data",slots); error(err) end
+    -- Startup capacity is committed by the companion ONLY after a successful
+    -- native save and verified snapshot, never from an in-memory allocation.
+    message=fresh and "Empty entry added. Choose Create new to open the native editor." or "Clone attached. Load it and save normally."
+end
+local actions={
+    append_clone=function(r) append(r,false) end,
+    append_fresh=function(r) append(r,true) end,
+    load=function(r) select_character(assert(r.index),false) end,
+    create_new=function(r) select_character(assert(r.index),true) end,
+    prepare_trim=function() safety.prepare_trim(); message="Saving the expanded container before trim" end,
+    confirm_trim=function() safety.confirm_trim(); message="Waiting for durable trim journal" end,
+    cancel_trim=function() safety.cancel_trim(); message="Trim cancelled" end,
+}
 function M.update()
-    if os.clock()-last_poll>1 then
+    if os.clock()-last_poll>0.5 then
         last_poll=os.clock()
         local session=control.read("session")
-        local manager,root,slots,state=context()
-        view.title=state and state:get_type_definition():get_full_name()=="app.TitleState"
+        local manager,_,slots,state=records.context()
         view.isolated=session.isolated==true
-        view.slots=slots and slots:get_size() or 0
-        view.current=manager and manager:get_field("CurrentUserDataIndex") or -1
         view.enabled=control.enabled(session)
+        view.title=state and state:get_type_definition():get_full_name()=="app.TitleState"
+        view.current=manager and manager:get_field("CurrentUserDataIndex") or -1
+        view.slots={}
+        if slots then
+            for i=0,slots:get_size()-1 do
+                local record=slots:get_element(i)
+                local basic=record and record:get_field("_BasicData")
+                view.slots[#view.slots+1]={index=i,active=record and record:get_field("Active")~=0,
+                    name=basic and basic:get_field("CharName") or "Empty"}
+            end
+        end
         local req=control.read("command")
-        if req and session and req.session_id==session.session_id and req.id and not processed[req.session_id..":"..req.id] then
-            processed[req.session_id..":"..req.id]=true
-            last_request=req.id
-            pending=req.action
+        if req.session_id==session.session_id and req.id and not processed[req.session_id..":"..req.id] then
+            processed[req.session_id..":"..req.id]=true; pending=req
         end
     end
     if pending then
-        local action=pending; pending=nil
-        local ok,err=pcall(function() assert(actions[action],"Unknown action")() end)
+        local request=pending; pending=nil
+        local ok,err=pcall(function() assert(actions[request.action],"Unknown action")(request) end)
         if not ok then message=tostring(err) end
-        json.dump_file("MHWAddSaveSlots.result.json",{action=action,ok=ok,message=message,id=last_request})
+        control.write("result",{action=request.action,ok=ok,message=message,id=request.id})
     end
+end
+local function panel()
+    local status,event,trim,fault=safety.state()
+    imgui.text(message)
+    imgui.text("Characters: "..#view.slots.." / "..policy.MAX_SLOTS.." | Current index: "..tostring(view.current))
+    imgui.text(fault or status.error or (status.ready and "Backup companion ready" or "Backup companion required"))
+    if event then imgui.text("Last save: "..event.phase..(status.ack==event.id and " / backup verified" or " / awaiting backup")) end
+    if trim then imgui.text("Trim: "..trim.stage) end
+    imgui.text("Copied saves only. Clones retain source online identity.")
+    local input_open=reframework:is_drawing_ui()
+    if not input_open then imgui.text("Press Insert to interact with this selector.") end
+    imgui.begin_disabled(not input_open or not view.enabled or pending~=nil or fault~=nil)
+    if view.title then
+        for _,slot in ipairs(view.slots) do
+            local label=(slot.active and "Load " or "Create new in ")..(slot.index+1)..": "..tostring(slot.name).."##slot"..slot.index
+            if imgui.button(label) then pending={action=slot.active and "load" or "create_new",index=slot.index} end
+        end
+        if #view.slots<policy.MAX_SLOTS then
+            if imgui.button("Add empty entry for a fresh character") then pending={action="append_fresh"} end
+            local changed
+            changed,clone_source=imgui.slider_int("Clone source",clone_source,1,math.max(1,#view.slots))
+            changed,hunter=imgui.input_text("Clone hunter name",hunter)
+            changed,palico=imgui.input_text("Clone Palico name",palico)
+            if imgui.button("Add independent clone") then pending={action="append_clone",source=clone_source,hunter=hunter,palico=palico} end
+        end
+    end
+    if not trim or trim.stage=="complete" or trim.stage=="cancelled" then
+        if #view.slots>3 and imgui.button("Prepare trim: save and back up all characters") then pending={action="prepare_trim"} end
+    elseif trim.stage=="ready" then
+        imgui.text("Expanded backup verified. Keep only entries 1-3 in the active test save?")
+        if imgui.button("Confirm trim to three characters") then pending={action="confirm_trim"} end
+        if imgui.button("Cancel trim") then pending={action="cancel_trim"} end
+    elseif trim.stage=="backing-up" then
+        if imgui.button("Cancel trim preparation") then pending={action="cancel_trim"} end
+    end
+    imgui.end_disabled()
 end
 function M.draw()
-    if imgui.tree_node("Fourth character selector") then
-        imgui.text(message)
-        imgui.text("Offline test copy only. Clone retains source online identity.")
-        if imgui.button("Check an independent copy of character 1") then pending="probe_copy" end
-        if imgui.button("Create Gupta and Kirikau as character 4") then pending="append_clone" end
-        if imgui.button("Load Gupta (fourth character)") then pending="load_fourth" end
+    if font then imgui.push_font(font) end
+    if imgui.tree_node("Wilds expanded characters") then
+        local ok,err=pcall(panel)
+        if not ok then imgui.text(tostring(err)) end
         imgui.tree_pop()
     end
+    if font then imgui.pop_font() end
 end
-function M.window()
-    if not view.title or not view.isolated then return end
+re.on_frame(function()
+    if not view.isolated or not view.title then return end
     if position_window then
         imgui.set_next_window_pos({70,70},1)
-        imgui.set_next_window_size({900,360},1)
+        imgui.set_next_window_size({1100,700},1)
         position_window=false
     end
-    imgui.push_font(_G.MHWAddSaveSlots_font)
-    imgui.begin_window("Wilds - fourth character (experimental)",nil,0)
-    local ok,err=pcall(function()
-        imgui.text("Characters: "..view.slots.." | Current index: "..view.current)
-        imgui.text(message)
-        imgui.text("Open Start Game / Select Saved Data, then use this selector.")
-        imgui.text("Offline test copy only. Clone retains source online identity.")
-        imgui.begin_disabled(not view.enabled or pending~=nil)
-        if view.slots==3 and imgui.button("Create Gupta + Kirikau as character 4") then pending="append_clone" end
-        if view.slots==4 and imgui.button("Load Gupta + Kirikau (character 4)") then pending="load_fourth" end
-        imgui.end_disabled()
-    end)
+    if font then imgui.push_font(font) end
+    imgui.begin_window("Wilds expanded characters (experimental)",nil,0)
+    local ok,err=pcall(panel)
     if not ok then imgui.text(tostring(err)) end
     imgui.end_window()
-    imgui.pop_font()
-end
--- A single callback survives development module reloads without accumulating
--- duplicate windows. The current module owns the function it dispatches to.
-_G.MHWAddSaveSlots_window=M.window
-if not _G.MHWAddSaveSlots_window_registered then
-    _G.MHWAddSaveSlots_window_registered=true
-    re.on_frame(function() if _G.MHWAddSaveSlots_window then _G.MHWAddSaveSlots_window() end end)
-end
+    if font then imgui.pop_font() end
+end)
 return M

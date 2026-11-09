@@ -4,7 +4,7 @@ Read this file before changing the repository, including untracked files.
 
 ## Purpose
 
-Build an experimental REFramework mod for Monster Hunter Wilds that creates and loads a fourth character using its own selector. The native three-row menu is not the target. Do not substitute external save swapping for the requested fourth-character experiment.
+Build an experimental REFramework mod for Monster Hunter Wilds that creates and loads additional characters using its own selector. Support both independent clones and fresh characters, preserve a native-range persisted selection, retain verified expanded-save backups, and provide explicit trimming to three entries. The native three-row menu is not the target. Do not substitute external save swapping for native expanded records.
 
 ## Save safety
 
@@ -14,6 +14,8 @@ Build an experimental REFramework mod for Monster Hunter Wilds that creates and 
 - Preserve the original directory intact, record hashes, journal the substitution, and provide a recovery path before launching the game.
 - Restore the original directory after testing and verify its contents against the recorded hashes.
 - Experimental mutation must be explicitly enabled for an isolated test session; default operation is read-only discovery.
+- The user handles Steam and all in-game controls. Do not launch, close, or automate those applications.
+- Keep expanded recovery snapshots after trimming or an unclassified save change. Never overwrite the only expanded backup with a smaller container.
 
 ## Implementation and evidence
 

@@ -5,7 +5,7 @@ local function check(v,m) checks=checks+1;assert(v,m) end
 local function rejects(fn)check(not pcall(fn),"Expected rejection")end
 local function clone(v)if type(v)~="table" then return v end local x={} for k,a in pairs(v)do x[k]=clone(a)end return x end
 local now=1000
-os.time=function()return now end;os.clock=function()return now end
+os.time=function()return math.floor(now) end;os.clock=function()return now end
 local files={session={isolated=true,mutation_enabled=true,session_id="fixture",expires_utc="2099-01-01T00:00:00Z"}}
 local control={read=function(n)return files[n] or {} end,write=function(n,v)files[n]=clone(v)end,
     enabled=function(s)return s.isolated==true and s.mutation_enabled==true end}
@@ -14,7 +14,7 @@ local disk,write_failure={},nil
 local backend={exists=function(p)return disk[p]~=nil end,
     read=function(p)assert(disk[p]);return clone(disk[p])end,
     write=function(p,v)assert(not disk[p]);assert(not write_failure or not p:find(write_failure,1,true),"Disk full");disk[p]=clone(v)end,
-    list=function(prefix)local out={} for p in pairs(disk)do if p:sub(1,#prefix)==prefix and p:find("publish-",1,true)then out[#out+1]=p end end return out end}
+    list=function(prefix)local out={} for p in pairs(disk)do if p:sub(1,#prefix)==prefix then out[#out+1]=p end end return out end}
 local real_archive=require("MHWAddSaveSlots.archive")
 local store=real_archive.open("test",backend)
 package.loaded["MHWAddSaveSlots.archive"]={open=function()return store end}
@@ -68,8 +68,9 @@ sdk={PreHookResult={SKIP_ORIGINAL="skip"},to_ptr=function(v)return v end,to_mana
     end}
 io.open=function()return nil end
 local codec_failure=false
+local encodes=0
 package.loaded["MHWAddSaveSlots.snapshot_codec"]={
-    encode=function(r)assert(not codec_failure,"Serialization failed");return {bytes=3,data="AQID",name=r:get_field("_BasicData"):get_field("CharName"),active=true}end,
+    encode=function(r)encodes=encodes+1;assert(not codec_failure,"Serialization failed");return {bytes=3,data="AQID",name=r:get_field("_BasicData"):get_field("CharName"),active=true}end,
     decode=function(e)return record(e.name)end}
 local initial={};for i=0,4 do initial[#initial+1]=package.loaded["MHWAddSaveSlots.snapshot_codec"].encode(root.fields._Data[i])end
 local base=store:capture(initial,"baseline");store:commit(base.id)
@@ -83,15 +84,24 @@ local exec="ace.SaveDataManagerBase.cSaveRequest:execMainFunction"
 local callback="ace.SaveDataManagerBase.cSaveRequest:execCallback"
 local request=object("ace.SaveDataManagerBase.cSaveRequest")
 function request:call(n)if n=="get_Target"then return root end end
-local function save()
+local function finish_backup()
+    for _=1,80 do now=now+0.02;safety.update() end
+end
+local function save(wait)
+    local before=encodes
     local skipped=call(exec,{nil,request},11);check(not skipped,"Unexpected save refusal")
     call(callback,{nil,request,7,11},0)
+    check(encodes==before,"Native save hook serialized characters")
+    if wait~=false then finish_backup() end
 end
 safety.clamp(common)
 check(common.fields.LastUserIndex==0 and manager.fields.CurrentUserDataIndex==4,"Persisted index must not change live selection")
-save()
+save(false)
 local status,event=safety.state()
-check(event.phase=="completed" and status.ack==event.id and store.committed.slots==5)
+check(event.phase=="completed" and status.ack~=event.id and store.committed.id==base.id,"Native success must precede backup verification")
+check(real_archive.open("test",backend):capacity()==5,"Crash before backup must preserve native capacity")
+finish_backup()
+check(event.phase=="completed" and status.ack==event.id and store.committed.slots==5,status.backup_warning or "Background save backup did not finish")
 local expanded=store.committed.id
 flow.fields._CurrentGameState=object("app.TitleState")
 local native_source=object("app.savedata.cUserSaveData",{_Data=array(3)})
@@ -104,7 +114,10 @@ check(store:load(expanded).slots==5,"Smaller native load must retain expanded re
 flow.fields._CurrentGameState=object("app.IngameState")
 codec_failure=true
 local skipped,retval=call(exec,{nil,request},11)
-check(skipped and retval==99,"Serialization failure must refuse native write")
+check(not skipped and retval==11,"Backup serialization must not block native write")
+call(callback,{nil,request,7,11},0)
+finish_backup()
+check(safety.state().backup_warning~=nil and store.committed.id==expanded,"Serialization failure must retain last verified backup")
 codec_failure=false
 save()
 manager.fields.CurrentUserDataIndex=0
@@ -121,14 +134,78 @@ local native0,native1,native2=root.fields._Data[0],root.fields._Data[1],root.fie
 check(safety.restore_character(expanded,4)==3)
 check(root.fields._Data:get_size()==4 and root.fields._Data[0]==native0 and root.fields._Data[1]==native1 and root.fields._Data[2]==native2)
 save()
+-- Autosaves can supersede pending work without waiting for an older backup.
+local catalog_before=#store.catalog
+local keep=store.committed.id
+save(false)
+local first_pending=select(2,safety.state()).id
+save(false)
+local newest=select(2,safety.state()).id
+check(newest~=first_pending and store.committed.id==keep,"New native save waited on/replaced the prior verified archive")
+finish_backup()
+check(#store.catalog==catalog_before+1 and safety.state().ack==newest,"Superseded queued backup was published")
+-- A staging copy can be reused before execMainFunction; cancel the in-flight
+-- capture at copyFrom so an old generation cannot publish mixed records.
+catalog_before=#store.catalog;keep=store.committed.id
+save(false)
+now=now+0.02;safety.update() -- create worker
+now=now+0.02;safety.update() -- capture one character
+local reused=object("app.savedata.cUserSaveData",{_Data=array(4)})
+call("app.savedata.cUserSaveData:copyFrom(ace.cSaveDataBase)",{nil,root,reused},1)
+finish_backup()
+check(store.committed.id==keep and #store.catalog==catalog_before,"Reused staging object published an obsolete backup")
+save()
+check(#store.catalog==catalog_before+1,"Replacement native save could not produce a verified backup")
+-- Once all records are immutable strings, finish their write/verification even
+-- if a new autosave arrives. Otherwise a busy autosave stream could starve all
+-- backups. Completion of the older backup must not acknowledge the newer save.
+catalog_before=#store.catalog
+save(false)
+local frozen_event=select(2,safety.state())
+local reached=false
+for _=1,20 do
+    now=now+1;safety.update()
+    local progress=safety.state().backup
+    if progress and progress.phase=="checksum" then reached=true;break end
+end
+check(reached,"Fixture did not reach immutable backup work")
+save(false)
+newest=select(2,safety.state()).id
+now=now+1;safety.update()
+check(frozen_event.backup=="verified" and safety.state().ack~=newest,"Older backup acknowledged a newer native save")
+check(files["latest-save"].event.id==newest,"Older backup overwrote the newest native receipt")
+finish_backup()
+check(#store.catalog==catalog_before+2 and safety.state().ack==newest,"Overlapping saves starved a frozen backup")
+-- A failed native start must never turn into a completed character archive.
+catalog_before=#store.catalog;keep=store.committed.id
+local refused=call(exec,{nil,request},99)
+check(not refused,"The mod blocked the native start instead of observing its failure")
+call(callback,{nil,request,99,99},0);finish_backup()
+check(store.committed.id==keep and #store.catalog==catalog_before,"Failed native save was committed as a backup")
 -- A crash after native completion but before its commit must retain the pending
 -- snapshot, and a later startup must reserve its expanded capacity.
-write_failure="commit-"
-call(exec,{nil,request},11);call(callback,{nil,request,7,11},0)
-local _,_,_,fault=safety.state();check(fault~=nil)
+write_failure="/commit-"
+local verified_before=store.committed.id
+call(exec,{nil,request},11);call(callback,{nil,request,7,11},0);finish_backup()
+local _,_,_,fault=safety.state();check(fault==nil and safety.state().backup_warning~=nil,"Backup failure should warn without disabling native saves")
+check(store.committed.id==verified_before,"Commit failure replaced the verified backup")
 check(real_archive.open("test",backend):capacity()==4)
-check(call(exec,{nil,request},11)==true,"Commit fault must block further writes")
+check(call(exec,{nil,request},11)==false,"Commit fault must not block further native writes")
+call(callback,{nil,request,7,11},0)
 write_failure=nil
+finish_backup()
+check(safety.state().backup_warning==nil,"A subsequent backup should recover after a transient failure")
+-- Small slot bookkeeping is a different safety boundary from bulk backups.
+-- Native completion still runs, but a failed capacity marker must not be hidden
+-- by a later successful snapshot or permit more writes under uncertain state.
+write_failure="/native-commit-"
+check(call(exec,{nil,request},11)==false,"Native save did not start")
+local callback_ran=false
+call(callback,{nil,request,7,11},0,function()callback_ran=true end)
+write_failure=nil
+finish_backup()
+check(callback_ran and select(4,safety.state())~=nil,"Slot bookkeeping fault was cleared by backup completion")
+check(call(exec,{nil,request},11)==true,"Uncertain slot bookkeeping permitted an unsafe subsequent write")
 -- Corrupt activation must stay guarded, not silently disable preservation.
 files.session={}
 io.open=function()return {close=function()end}end

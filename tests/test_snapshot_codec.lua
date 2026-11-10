@@ -8,6 +8,7 @@ local function rejects(fn,fragment)
     check(not ok and tostring(err):find(fragment,1,true),"Expected rejection: "..fragment)
 end
 local mode,raw,last_created
+local serialize_calls,base64_calls=0,0
 local types={}
 local function td(name)
     if not types[name] then
@@ -59,6 +60,7 @@ local create=method(function()
     return value
 end)
 local serialize=method(function(_,record)
+    serialize_calls=serialize_calls+1
     return array({record.payload,record.fields._StartMenu.fields.RecentMenu[0],record.fields._StartMenu.fields.FavoriteMenu[0]})
 end)
 local deserialize=method(function()
@@ -68,6 +70,7 @@ local deserialize=method(function()
 end)
 local encodings={AQID={1,2,3},AgID={2,2,3},AQAA={1,0,0}}
 local encode=method(function(bytes)
+    base64_calls=base64_calls+1
     for encoded,values in pairs(encodings)do
         if bytes:get_size()==#values and bytes[0]==values[1] and bytes[1]==values[2] and bytes[2]==values[3]then return encoded end
     end
@@ -111,4 +114,13 @@ for _,case in ipairs({
 mode=nil
 rejects(function()codec.decode({bytes=4,data="AQID"})end,"Invalid snapshot encoding length")
 rejects(function()codec.decode({bytes=3,data="!!!!"})end,"Invalid snapshot encoding")
+local jobs=require("MHWAddSaveSlots.jobs")
+local before_serialize,before_base64=serialize_calls,base64_calls
+local task=jobs.new(function(yield)return codec.encode(result,yield)end)
+task:step()
+check(serialize_calls==before_serialize+1 and base64_calls==before_base64 and not task.done,"Serialization and Base64 ran in the same update")
+task:step()
+check(base64_calls==before_base64+1 and not task.done,"Base64 did not yield before further work")
+task:step()
+check(task.done and not task.error and task.result.data==entry.data,"Incremental codec changed snapshot bytes")
 print("Snapshot codec: "..checks.." assertions passed")

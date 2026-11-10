@@ -5,6 +5,7 @@ local policy=require("MHWAddSaveSlots.policy")
 local records=require("MHWAddSaveSlots.records")
 local archive=require("MHWAddSaveSlots.archive")
 local codec=require("MHWAddSaveSlots.snapshot_codec")
+local jobs=require("MHWAddSaveSlots.jobs")
 local session=control.read("session")
 local testing=control.enabled(session)
 local activation_path="MHWAddSaveSlots/activation.json"
@@ -20,12 +21,15 @@ local protected=testing or (activation_present and (not activation or activation
 local store
 local runtime_id=tostring(os.time()).."-"..tostring(math.random(100000,999999))
 local event,trim,fault=nil,nil,nil
+local backup_job,backup_pending,backup_warning,backup_source,backup_frozen,backup_event
 local deferred_load
 local sequence,last_poll,last_native=0,0,0
 local status={ready=false,slots=3}
 local function read_status()
     status.ready=protected and store~=nil and fault==nil
     status.error=fault
+    status.backup_warning=backup_warning
+    status.backup=backup_job and backup_job:report() or backup_pending and {phase="queued"} or nil
     if store then
         status.slots=store:capacity()
         status.snapshot=store.committed and store.committed.id or store.latest and store.latest.id
@@ -69,15 +73,17 @@ local function capture(slots,label)
     for i=0,policy.count(slots:get_size())-1 do entries[#entries+1]=codec.encode(assert(slots:get_element(i))) end
     return store:capture(entries,label)
 end
-local function receipt(stage)
-    local record={version=3,session_id=session.session_id,runtime_id=runtime_id,event=event}
-    control.write("save-"..stage.."-"..event.id,record)
-    control.write("latest-save",record)
+local function receipt(stage,saved)
+    saved=saved or event
+    local record={version=3,session_id=session.session_id,runtime_id=runtime_id,event=saved}
+    control.write("save-"..stage.."-"..saved.id,record)
+    if saved==event then control.write("latest-save",record) end
 end
 function M.guard()
     assert(protected,"Enable Add Save Slots first")
     if testing then assert(control.enabled(control.read("session")),"The copied-save test session has expired") end
     assert(not fault,fault)
+    assert(not backup_job and not backup_pending,"Wait for the current backup before changing characters")
     assert(not trim or trim.stage=="complete" or trim.stage=="cancelled","Trim transaction in progress")
     return ready()
 end
@@ -150,6 +156,10 @@ sdk.hook(method("app.savedata.cUserSaveData","copyFrom(ace.cSaveDataBase)"),func
     local ok,err=pcall(function()
         local target=assert(sdk.to_managed_object(args[2]))
         local source=assert(sdk.to_managed_object(args[3]))
+        -- Staging can be reused before the next request reaches its execution
+        -- hook. Cancel capture at the copy boundary, not only at save start.
+        if target==backup_source and backup_job then backup_job:cancel() end
+        if backup_pending and target==backup_pending.target then backup_pending=nil end
         local count=policy.count(source:get_field("_Data"):get_size())
         local old=target:get_field("_Data"):get_size()
         if old>count then
@@ -246,9 +256,14 @@ sdk.hook(method("ace.SaveDataManagerBase.cSaveRequest","execMainFunction"),funct
         if count<current.slots then
             assert(count==3 and trim and trim.stage=="saving" and trim.source==current.snapshot,"Capacity reduction requires a prepared trim")
         end
-        local snapshot=capture(target:get_field("_Data"),trim and trim.stage=="saving" and "before native trim save" or "before native character save")
+        -- Never serialize, checksum, or verify a character backup in this hook.
+        -- Only the small capacity intent must precede a newly expanded write.
+        local purpose=trim and trim.stage=="saving" and "trim" or "save"
+        local capacity_id=store:native_start(count,purpose)
+        if backup_job and not backup_frozen then backup_job:cancel() end
+        backup_pending=nil
         event={id=id(),request=key,phase="writing",slots=count,purpose=trim and trim.stage=="saving" and "trim" or "save",
-            trim_id=trim and trim.id or nil,snapshot=snapshot.id}
+            trim_id=trim and trim.id or nil,capacity_id=capacity_id,backup="waiting for native completion"}
         storage.event_id=event.id
         receipt("start") -- Survives process exit and the next runtime's heartbeat.
         emit()
@@ -284,8 +299,17 @@ sdk.hook(method("ace.SaveDataManagerBase.cSaveRequest","execCallback"),function(
             event.phase=event.result==success and event.error==no_error and "completed" or "failed"
         end
         if event.phase=="completed" then
-            store:commit(event.snapshot)
-            status.ack=event.id
+            local marked,mark_error=pcall(store.native_complete,store,event.capacity_id)
+            -- Slot bookkeeping is required for safe startup, distinct from an
+            -- optional newer character backup. Do not clear this fault merely
+            -- because the background snapshot later succeeds.
+            if not marked then fail("Native slot bookkeeping failed: "..tostring(mark_error)) end
+            -- The request's target is retained, not the mutable current-player
+            -- selector. A later native save cancels unfinished capture before
+            -- it can mix generations or publish stale capacity information.
+            target:add_ref()
+            backup_pending={target=target,event=event}
+            event.backup="queued"
             read_status()
         end
         receipt("end")
@@ -324,6 +348,53 @@ function M.cancel_trim()
     trim.stage="cancelled"; emit()
 end
 local retained
+local function update_backup(manager)
+    if backup_job then
+        backup_job:step()
+        stats.backup=backup_job:report()
+        if backup_job.done then
+            if backup_job.error then
+                backup_warning=backup_job.error
+                if backup_event then backup_event.backup="failed" end
+                log.error("Add Save Slots backup: "..backup_warning)
+            elseif backup_job.cancelled and backup_event then
+                backup_event.backup="superseded"
+            end
+            backup_job=nil
+            backup_source=nil;backup_frozen=false;backup_event=nil
+        end
+    end
+    if not backup_job and backup_pending and not records.busy(manager) then
+        local pending=backup_pending;backup_pending=nil
+        backup_source=pending.target;backup_event=pending.event
+        backup_job=jobs.new(function(checkpoint)
+            local saved=pending.event
+            assert(saved==event and saved.phase=="completed","Native save changed before backup capture")
+            local slots=assert(pending.target:get_field("_Data"))
+            assert(slots:get_size()==saved.slots,"Saved character capacity changed")
+            local entries={}
+            for i=0,saved.slots-1 do
+                entries[#entries+1]=codec.encode(assert(slots:get_element(i)),checkpoint)
+                checkpoint("character captured",true)
+            end
+            -- Strings are now immutable. Finish this backup even if another
+            -- autosave arrives; otherwise frequent saves could starve backups.
+            -- capture reserves its revision before its first checkpoint, so a
+            -- later native capacity record always outranks this older snapshot.
+            backup_source=nil;backup_frozen=true
+            saved.backup="writing"
+            local snapshot=store:capture(entries,"after native "..saved.purpose.." save",checkpoint)
+            -- Publication already verified the exact bytes. commit writes only
+            -- a small marker; the previous committed snapshot remains intact.
+            store:commit(snapshot.id)
+            saved.snapshot=snapshot.id;saved.backup="verified"
+            if saved==event then status.ack=saved.id end
+            backup_warning=nil
+            read_status();receipt("end",saved);emit()
+            return snapshot.id
+        end)
+    end
+end
 function M.update()
     if not protected then return end
     local manager,root,slots=records.context()
@@ -331,6 +402,7 @@ function M.update()
     local index=manager:get_field("CurrentUserDataIndex")
     if index>=0 and index<3 then last_native=index end
     M.clamp(records.common(manager))
+    update_backup(manager)
     if os.clock()-last_poll<0.5 then return end
     last_poll=os.clock(); read_status()
     if deferred_load and (status.ready or fault) then
@@ -340,7 +412,7 @@ function M.update()
         if not ok then stats.load_wait=tostring(err) end
     end
     if trim and not records.busy(manager) then
-        if trim.stage=="backing-up" and event and event.id~=trim.baseline and event.phase=="completed" and status.ack==event.id and status.slots==trim.count then
+        if trim.stage=="backing-up" and not fault and event and event.id~=trim.baseline and event.phase=="completed" and status.ack==event.id and status.slots==trim.count then
             trim.stage="ready"
         elseif trim.stage=="awaiting-journal" and status.trim_ack==trim.id then
             local ok,err=pcall(function()
@@ -358,7 +430,7 @@ function M.update()
                 trim.stage="failed"; fail(err)
             end
         elseif trim.stage=="saving" and event and event.purpose=="trim" then
-            if event.phase=="completed" and status.ack==event.id and status.slots==3 then
+            if not fault and event.phase=="completed" and status.ack==event.id and status.slots==3 then
                 trim.stage="complete"; retained=nil
             elseif event.phase=="failed" then
                 if retained then root:set_field("_Data",retained) end

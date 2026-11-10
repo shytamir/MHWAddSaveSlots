@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version='1.0',[string]$OutputDirectory)
+param([string]$Version='1.0.2',[string]$OutputDirectory)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if($Version -notmatch '^[0-9A-Za-z.-]+$'){throw 'Invalid package version.'}
@@ -17,6 +17,7 @@ $files=@(
  'reframework\autorun\MHWAddSaveSlots\preservation.lua',
  'reframework\autorun\MHWAddSaveSlots\snapshot_codec.lua',
  'reframework\autorun\MHWAddSaveSlots\archive.lua'
+ 'reframework\autorun\MHWAddSaveSlots\jobs.lua'
 )
 New-Item -ItemType Directory -Path $stage,$OutputDirectory -Force | Out-Null
 $manifest=@()

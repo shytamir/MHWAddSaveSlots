@@ -18,11 +18,19 @@ Player instructions and the save-data-loss disclaimer remain in [README.md](READ
 
 The tag predates the final player-documentation and package-naming cleanup. Preserve it; do not retag it to disguise that difference. The hash identifies the local release handoff archive, not an independently downloaded Nexus asset. The released runtime is Lua-only and has no companion or additional DLL dependency.
 
+### Prepared documentation update
+
+`AddSaveSlots-1.0.1.zip` documents the offline-only added slots, the limited online confirmation for original vanilla characters, and the unresolved autosave stalls. Its eight runtime Lua files match 1.0 byte-for-byte. SHA-256: `1c6bb36ad183ba985c290a71f0154e272d945fdd9a49784206ac2c1b5846eeaa`. This package has been prepared locally; publication has not been reported. It does not contain a performance fix.
+
+### Autosave candidate: 1.0.2
+
+The repository contains a post-save backup candidate, described in [the autosave maintenance record](docs/autosave-backups.md). It removes full character backup work from native save hooks, retains prior verified snapshots, and processes new backups cooperatively. The author authorized committing and pushing the candidate to main while keeping it unpublished until copied-save runtime validation is complete. The candidate is not installed or live-validated; the released baseline above remains unchanged. Do not create a tag, GitHub release, or Nexus upload before that validation and the author's release instruction. Do not claim that the reported freezes have been eliminated or quote a measured in-game latency improvement.
+
 ## Repository map
 
 | Path | Purpose |
 | --- | --- |
-| `reframework/autorun/` | Released loader and seven Lua modules; keep existing internal names and data paths compatible. |
+| `reframework/autorun/` | Runtime loader and modules; the candidate adds `jobs.lua`. Keep existing internal names and data paths compatible. |
 | `tests/` | Mocked Lua regressions for the archive, codec, preservation, selector, and legacy safeguards. |
 | `scripts/Build-Package.ps1` | Explicit package allowlist and per-file SHA-256 verification. |
 | `scripts/SaveSandbox.ps1`, `scripts/Test-SaveSandbox.ps1` | Developer copied-save isolation and fixture checks. |
@@ -39,10 +47,11 @@ Personal saves, archives, account identifiers, test-session journals, runtime du
 
 - Live evidence covers a fourth clone, a fresh fifth character, save/restart/reload, trimming to three, a mod-absent native load/save, and archived-extra recovery followed by save/restart/reload. The integrated live package was `0.3.0-dev.2`; the 1.0 branding and documentation changes did not alter save behavior.
 - Recovery/load/save can reset the first three characters' recent/favourite menu arrays. The observed native records were otherwise byte-identical. The exact reset boundary remains unresolved; do not claim complete field preservation.
-- The implementation caps entries at sixteen. Live testing reached five; capacities six through sixteen are not live-validated. Long-term progression, a second installation, and save-time pauses remain unmeasured.
+- The implementation caps entries at sixteen. Live testing reached five; capacities six through sixteen are not live-validated. Long-term progression and a second installation remain unvalidated. The author subsequently reported autosave freezes/stuttering of up to 4–5 seconds with just four entries, the fourth a freshly created character. No manual saves were used in that reported run. Stage timings remain unmeasured; treat this as an unresolved maintenance defect.
 - Interrupted writes, corrupt/missing archives, and commit failures have mocked coverage, not complete in-game fault-injection coverage. Archives grow without automatic pruning and preserve characters, not the whole Steam userdata directory.
 - The fresh character survived restart at the tutorial checkpoint, but that restart followed a successful save and Steam Stop. Normal Save and Quit for that fresh-character run remains unverified. Other installed mods were present during testing.
-- Offline Mode and disabled Steam Cloud were isolated test conditions, not mod requirements. Online play and Cloud synchronization were outside the live test coverage.
+- Slots 4–16 are currently for offline play only. The author reported failed online attempts from the added slot with Steam Cloud enabled. Online play is confirmed only for slots 1–3 in an original, unmodified vanilla save with its original characters; that confirmation does not cover expanded saves, clones, or recovered characters. Steam Offline Mode and disabled Cloud remain developer test-isolation conditions, not general installation requirements. Cloud-enabled use is not proof of synchronization/conflict recovery across devices.
+- The author also reported that trimming and removal worked correctly in that run. See [post-release findings](docs/post-release-findings.md) for the distinction between observed behavior and the proposed hunter-registration explanation.
 
 These are evidence limits and maintenance candidates, not commitments to add features or guarantees of save safety. Read the full validation report before making stronger claims.
 
@@ -61,12 +70,14 @@ lua tests/test_archive.lua
 lua tests/test_preservation.lua
 lua tests/test_snapshot_codec.lua
 lua tests/test_safety.lua
+lua tests/test_jobs.lua
+node tests/run_lua.cjs tests/test_stream_archive.lua
 pwsh -NoProfile -File scripts/Test-SaveSandbox.ps1
 pwsh -NoProfile -File legacy/companion/Test-SaveCompanion.ps1
 git diff --check
 ```
 
-The Lua baseline is 109 assertions: 18 archive, 27 preservation, 12 codec, and 52 selector/legacy safeguards. Check the printed PASS/assertion output as well as the exit status; some Lua runners do not return failure reliably. The PowerShell checks create synthetic fixtures under ignored `work/sandbox-fixtures`; no live game or personal save is needed. Keep these tests rather than replacing them merely to remove PowerShell from developer tooling.
+The 1.0 baseline was 109 assertions. The autosave candidate has 187: 18 archive, 62 preservation, 15 codec, 52 selector/legacy safeguards, 8 job scheduling, and 32 streaming archive checks. The streaming test uses real JSON parsing through `tests/run_lua.cjs`, which requires Node and Fengari (installed as a development dependency, or at the existing ignored `work/lua-tools/node_modules/fengari` location). This runner can run the other Lua tests too and exits nonzero on assertions. Check printed results when using another runner. The PowerShell checks create synthetic fixtures under ignored `work/sandbox-fixtures`; no live game or personal save is needed. Keep these tests rather than replacing them merely to remove PowerShell from developer tooling.
 
 Run checks appropriate to each change. Hook, serialization, loading, or save behavior changes also need focused live copied-save validation before being described as runtime-tested. Documentation and layout changes do not require launching the game. Record automated and live results separately.
 
@@ -80,7 +91,7 @@ Run checks appropriate to each change. Hook, serialization, loading, or save beh
    pwsh -NoProfile -File scripts/Build-Package.ps1 -Version X.Y.Z -OutputDirectory outputs/release-X.Y.Z
    ```
 
-4. Verify the builder's allowlist and hashes. Only the player README, license, eight runtime Lua files, and package manifest belong in the ZIP. Keep a separate checksum. Do not include diagnostics, legacy tools, tests, private data, or development reports.
+4. Verify the builder's allowlist and hashes. Only the player README, license, runtime Lua files, and package manifest belong in the ZIP (nine Lua files for the autosave candidate; eight in 1.0/1.0.1). Keep a separate checksum. Do not include diagnostics, legacy tools, tests, private data, or development reports.
 5. For a behavior change, validate the exact candidate on copied saves: activation, the affected workflow, normal save, process restart, and reload. Include clone/fresh creation, archive recovery, and trim/mod-absent compatibility when the change can affect them. Restore and hash-verify the originals afterward.
 6. Commit and push only when authorized. New tags, GitHub releases, and Nexus uploads require the author's release instruction; never silently overwrite an existing tag or published archive. Record the new commit, package hash, compatibility baseline, and evidence limits here when releasing.
 

@@ -8,9 +8,15 @@
 
 Add more characters to Monster Hunter Wilds and select them through the **Add Save Slots** REFramework panel. Create a fresh hunter, clone an existing character, recover a character from a backup, or return your save to the original three slots.
 
-**Version 1.0.** First setup requires a save with the game's normal three character slots.
+**Version 1.0.2.** First setup requires a save with the game's normal three character slots.
+
+**Slots 4 and above are for offline play only.** Added characters cannot currently go online. This applies to both fresh characters and clones.
+
+**Online play is confirmed only for the first three slots in an original, unmodified vanilla save, with its original characters.** This confirmation does not extend to the first three slots in a mod-expanded save or to cloned or recovered characters. Steam Cloud synchronization is separate from in-game online play; enabling Cloud does not enable online play for added slots.
 
 **Known limitation:** recovery can reset the native characters' recent/favourite menus. You may need to reconfigure those menus afterward.
+
+**Performance limitation:** backup work runs incrementally after saving, but individual engine serialization and disk operations cannot be interrupted by the mod. Save-time pauses may still occur.
 
 ## Requirements
 
@@ -36,7 +42,7 @@ The mod stays inactive until you complete setup. Setup does not replace the sepa
 - Use the panel's **Load** buttons for extra characters. Press **Insert** to open REFramework before clicking the controls.
 - Save normally, wait for the save to complete and **backup verified**, then fully restart and load that entry again.
 
-The first three characters remain available through the game's normal menu. The Add Save Slots panel supports up to sixteen entries.
+The first three characters remain available through the game's normal menu. The Add Save Slots panel supports up to sixteen entries; entries 4–16 are for offline play only.
 
 ## Backups and recovery
 
@@ -46,9 +52,11 @@ Keep this entire backup directory:
 MonsterHunterWilds/reframework/data/MHWAddSaveSlots/
 ```
 
-The mod backs up your characters before saving and verifies the stored backup. A backup is marked as complete after the game reports a successful save. Backups from interrupted or unfinished saves are retained and labelled as unconfirmed.
+Native saves proceed without waiting for character backup verification. After a successful save, the mod captures the characters, then writes and verifies the new backup over multiple frames. The previous verified backup remains intact until the new backup is complete. Snapshots preserve character state captured after saving; they are not copies of the native save files.
 
-If a backup cannot be verified, the mod blocks character saving. Do not delete backup data to clear an error. Exit the game and restore the complete backup folder, or restore your separate whole-directory save backup.
+Wait for **backup verified** when you need an up-to-date recovery point. If you exit before a backup finishes, the previous verified backup remains available, but the newest progress may exist only in the game's save files. An unfinished backup is never promoted to a verified recovery point.
+
+If background backup writing or verification fails, the panel shows a warning and native saves continue. Keep the existing backup folder and your separate whole-directory backup; do not delete backup data to clear a warning. A later successful backup can clear a temporary backup failure. Save-safety errors concerning missing or damaged slot information are separate and may still prevent unsafe operations.
 
 To recover a character, open **Select Saved Data → Add Save Slots → Recover an archived character**. Choose a snapshot and its character number, then **Restore into an extra entry**. This fills an empty extra slot or adds one; it does not replace any of the current first three characters. Load the recovered character, save normally, and verify it after restarting the game.
 
@@ -62,6 +70,8 @@ Character backups do not restore every game setting or file in the Steam save di
 4. Close Wilds. Preserve the complete backup folder, remove only `reframework/autorun/MHWAddSaveSlots.lua` and its `MHWAddSaveSlots` module directory, then launch the game and verify the three native characters.
 
 Returning to three slots retains the backups of your extra characters. Removing the mod before completing this procedure can allow a later game save to discard extra characters. Keep both the mod's backups and your separate whole-directory backup.
+
+Before reverting to an older Add Save Slots version, wait for **backup verified**, then close Wilds. Older versions do not understand the separate slot information used while a new backup is unfinished.
 
 To restore the whole-directory backup, close Wilds and fully exit Steam. Preserve the current userdata directory elsewhere, restore your separate backup to its original location, and verify its files before relaunching.
 

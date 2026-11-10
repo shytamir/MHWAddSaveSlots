@@ -77,8 +77,8 @@ local function append(request, fresh)
     end)
     manager:set_field("CurrentUserDataIndex",previous)
     if not ok then root:set_field("_Data",slots); error(err) end
-    -- Startup capacity is committed by the companion ONLY after a successful
-    -- native save and verified snapshot, never from an in-memory allocation.
+    -- Native-save capacity is journaled separately from asynchronous backups,
+    -- never inferred solely from an in-memory allocation.
     message=fresh and "Empty entry added. Choose Create new to open the native editor." or "Clone attached. Load it and save normally."
 end
 local actions={
@@ -131,9 +131,11 @@ local function panel()
     imgui.text("Characters: "..#view.slots.." / "..policy.MAX_SLOTS.." | Current index: "..tostring(view.current))
     imgui.text(fault or status.error or (status.ready and "Local backups ready" or "Read-only: library not enabled"))
     if status.notice then imgui.text(status.notice) end
+    if status.backup_warning then imgui.text("Backup warning: "..status.backup_warning) end
+    if status.backup then imgui.text("Backup: "..status.backup.phase.." (native saves continue)") end
     if event then imgui.text("Last save: "..event.phase..(status.ack==event.id and " / backup verified" or " / awaiting backup")) end
     if trim then imgui.text("Trim: "..trim.stage) end
-    imgui.text("Clones retain source online identity.")
+    imgui.text("Slots 4 and above are for offline play only. Clones retain source online identity.")
     local input_open=reframework:is_drawing_ui()
     if not input_open then imgui.text("Press Insert to interact with this selector.") end
     if not view.enabled and safety.activate then

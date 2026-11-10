@@ -17,21 +17,35 @@ local function methods()
     assert(sdk.find_type_definition("via.Serializer.Options"):get_field("None"):get_data(nil)==0)
     return api
 end
-function M.validate(entry)
+function M.validate(entry,checkpoint)
     assert(type(entry)=="table" and type(entry.bytes)=="number" and entry.bytes%1==0 and
         entry.bytes>0 and entry.bytes<=M.MAX_BYTES,"Invalid snapshot byte count")
     assert(type(entry.data)=="string" and #entry.data==4*math.ceil(entry.bytes/3),"Invalid snapshot encoding length")
-    assert(not entry.data:find("[^A-Za-z0-9+/=]"),"Invalid snapshot encoding")
+    if checkpoint then
+        for first=1,#entry.data,16384 do
+            assert(not entry.data:sub(first,first+16383):find("[^A-Za-z0-9+/=]"),"Invalid snapshot encoding")
+            checkpoint("validate")
+        end
+    else
+        assert(not entry.data:find("[^A-Za-z0-9+/=]"),"Invalid snapshot encoding")
+    end
     return entry
 end
-function M.encode(record)
+function M.encode(record,checkpoint)
     local a=methods()
     assert(record:get_type_definition():get_full_name()==a.td:get_full_name(),"Unexpected character type")
     local bytes=assert(a.serialize:call(nil,a.runtime,record,0),"Character serialization failed")
     bytes:add_ref()
+    if checkpoint then checkpoint("engine serialize",true) end
     local basic=record:get_field("_BasicData")
     local entry={bytes=bytes:get_size(),data=a.encode:call(nil,bytes),
         name=basic and basic:get_field("CharName") or "",active=record:get_field("Active")~=0}
+    if checkpoint then
+        checkpoint("engine Base64",true)
+        -- The archive validates this entry before publishing it. Avoid scanning
+        -- the same native-generated Base64 both here and again in capture.
+        return entry
+    end
     return M.validate(entry)
 end
 function M.decode(entry)

@@ -1,6 +1,6 @@
--- Run with Lua 5.3+ (or Fengari). These are mocked API/transaction tests, not
--- evidence about Wilds' serializer or its fresh-character editor.
-package.path="reframework/autorun/?.lua;"..package.path
+-- Run with Lua 5.3+ (or Fengari). Retained legacy-backend and current-selector
+-- mocks, not evidence about Wilds' serializer or its fresh-character editor.
+package.path="reframework/autorun/?.lua;legacy/companion/?.lua;"..package.path
 local policy=require("MHWAddSaveSlots.policy")
 local assertions=0
 local function check(value, message) assertions=assertions+1; assert(value,message) end
@@ -198,9 +198,12 @@ for i=0,2 do check(root.fields._Data[i]==native_before[i+1]) end
 files.command={session_id="test",id="new-editor",action="create_new",index=3}
 now=now+1;selector.update()
 check(files.result.ok and selected and list.selected==3 and manager.fields.CurrentUserDataIndex==3)
--- Syntax-check every shipped module, including modules not exercised above.
-for _,name in ipairs({"control","policy","records","compat","poc","probe"}) do
+-- Preserve the original syntax checks for the selector and legacy backend.
+for _,name in ipairs({"control","policy","records","poc"}) do
     check(loadfile("reframework/autorun/MHWAddSaveSlots/"..name..".lua")~=nil,"Syntax: "..name)
+end
+for _,name in ipairs({"compat","probe"}) do
+    check(loadfile("legacy/companion/MHWAddSaveSlots/"..name..".lua")~=nil,"Legacy syntax: "..name)
 end
 check(loadfile("reframework/autorun/MHWAddSaveSlots.lua")~=nil)
 print("PASS: "..assertions.." Lua policy, mocked-hook, fresh initializer, capacity, backup gate, and trim assertions")

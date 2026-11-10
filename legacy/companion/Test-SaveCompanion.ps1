@@ -3,7 +3,8 @@ param([string]$CopiedSaveDirectory)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'BackupStore.psm1') -Force -DisableNameChecking
-$root=Join-Path (Split-Path $PSScriptRoot -Parent) ('work\sandbox-fixtures\backup-'+[guid]::NewGuid().ToString('N'))
+$repo=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$root=Join-Path $repo ('work\sandbox-fixtures\backup-'+[guid]::NewGuid().ToString('N'))
 $app=Join-Path $root '2246340'
 $data=Join-Path $root 'data'
 $store=Join-Path $root 'store'

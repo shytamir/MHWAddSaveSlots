@@ -1,6 +1,8 @@
 # Expanded-character safeguards: validation
 
-Implementation and live testing: 2026-11-09, with recovery completed on 2026-11-10 (Europe/Madrid). Target game and REFramework versions are listed in the README.
+Historical companion-backend evidence. For the released Lua backend, see [the integrated validation report](../lua-backend-validation.md).
+
+Implementation and live testing: 2026-11-09, with recovery completed on 2026-11-10 (Europe/Madrid). Target game and REFramework versions are listed in the [historical companion guide](legacy-companion.md).
 
 ## Completed outside the game
 

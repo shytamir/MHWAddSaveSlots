@@ -2,7 +2,7 @@
 
 ## Release status
 
-`0.3.0` uses the Add Save Slots name throughout its panels and package. Relative to the live-tested `0.3.0-dev.2` ZIP, the changes are display strings, documentation, and package metadata; save behavior is unchanged. Setup wording now asks for a separate backup rather than asserting a copied-save test condition. Activation, the three-slot enrollment check, and preservation hooks are unchanged. The package contains the player README, license, Lua files, and manifest; investigation and validation reports stay in the repository. It integrates the earlier native-record selector with the engine serializer and in-process archive, and fixes character initialization during recovery. The native three-row menu remains unchanged. No PowerShell runtime, companion process, or additional DLL is included. This package has not been published to Nexus Mods.
+The author reported publication of **Add Save Slots 1.0** on [Nexus Mods](https://www.nexusmods.com/monsterhunterwilds/mods/5329) on 2026-11-10. The repository is now in [maintenance mode](../MAINTENANCE.md). Relative to the live-tested `0.3.0-dev.2` ZIP, the release changes are display strings, documentation, and package metadata; save behavior is unchanged. Setup wording asks for a separate backup rather than asserting a copied-save test condition. Activation, the three-slot enrollment check, and preservation hooks are unchanged. The package contains the player README, license, Lua files, and manifest; investigation and validation reports stay in the repository. It integrates the earlier native-record selector with the engine serializer and in-process archive, and fixes character initialization during recovery. The native three-row menu remains unchanged. No PowerShell runtime, companion process, or additional DLL is included. Development version names below identify the artifacts actually tested; they are not current installation instructions.
 
 The focused live restore/load/save/restart test passed on 2026-11-10 after correcting the raw reconstruction path. The user opened Steam in Offline Mode and authorized computer control. A development harness restored a disk snapshot into slot 3 of a verified native three-character copy. The integrated archive/selector package was not installed for this test.
 
@@ -57,6 +57,12 @@ The packaged test demonstrates these workflows on one installation with its othe
 - Lua syntax checks passed for the production modules. The package builder verifies an explicit file allowlist and the SHA-256 of every source/document file inside the ZIP.
 
 These are mocked/storage checks. They do not measure game-thread latency, native serializer field coverage, or gameplay recovery.
+
+### Maintenance transition checks, 2026-11-10
+
+After relocating developer diagnostics, companion tools, and historical reports, all 109 Lua assertions and both PowerShell fixture suites passed. Syntax checks covered all 21 Lua files and six PowerShell files; all 29 relative Markdown links resolved. The legacy test still exercises the current selector with its original companion-backed mock assertions.
+
+A separate package build retained the exact eleven-entry allowlist. All ten packaged source/document files were byte-for-byte identical to the retained 1.0 archive; the original archive's SHA-256 remained `412486db089b36ce21ef53fb7d497ff60b1dbd36546d33eaa8766b070f279f98`. No player README or runtime behavior changed. These were repository and synthetic-fixture checks; no game session, installed mod files, or personal saves were used for this cleanup.
 
 ## Validation coverage and follow-up
 

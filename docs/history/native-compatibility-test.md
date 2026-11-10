@@ -1,5 +1,7 @@
 # Expanded save with MHWAddSaveSlots absent
 
+Historical prototype test. For the released mod's trimming and recovery evidence, see [the integrated validation report](../lua-backend-validation.md).
+
 Test date: 2026-11-09. Game `1.042.00.03`, Steam build `25921695`, REFramework revision `d052e8fd3fd41d0a1a33394fcf6e6c19be39b1ee`. Prototype source: commit `3b1cc0c`.
 
 With a native character selected and saved normally, Wilds booted, displayed its three native characters, and loaded and saved the first character with MHWAddSaveSlots absent. That save operation reduced the character container from **858,988 to 595,260 bytes**, exactly its earlier three-character size. The working conclusion is that the fourth character was discarded by the normal save path.

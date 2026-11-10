@@ -1,12 +1,14 @@
-# MHWAddSaveSlots
+# Companion prototype — historical guide
+
+> Historical record of the companion prototype, superseded by the Lua-only 1.0 release. The installation layout, requirements, limitations, and UI names below describe that prototype, not today's mod. Tool paths have been updated to their retained locations. Use the [player README](../../README.md) for installation and the [Lua backend validation](../lua-backend-validation.md) for subsequent results. The retained files alone are not a drop-in prototype installation; use the corresponding historical commit when reproducing that architecture.
 
 Experimental REFramework mod for additional **Monster Hunter Wilds** characters, selected through its own overlay. Expanded records remain in the native `data001Slot.bin`; the native three-row menu assets are unchanged.
 
 The current implementation supports **3–16 entries**, independent clones, empty entries for the native new-character flow, a native-range persisted selection, versioned save backups, and an explicit conversion back to three entries. Sixteen is a conservative implementation limit, not a measured engine limit.
 
-**Use verified copies only.** Live testing has created a fourth clone and a fresh fifth character, played the fifth character's tutorial, saved, fully restarted, and loaded the fifth character with its appearance and progress intact. Five-entry backups passed file-hash verification. Trimming completed successfully; the resulting three-entry copy booted, displayed the native three, and loaded/saved the first character with this mod absent. Capacities 6–16 have not been played. See [validation](docs/safeguards-validation.md) for the separate runtime and mocked evidence.
+**Use verified copies only.** Live testing has created a fourth clone and a fresh fifth character, played the fifth character's tutorial, saved, fully restarted, and loaded the fifth character with its appearance and progress intact. Five-entry backups passed file-hash verification. Trimming completed successfully; the resulting three-entry copy booted, displayed the native three, and loaded/saved the first character with this mod absent. Capacities 6–16 have not been played. See [validation](safeguards-validation.md) for the separate runtime and mocked evidence.
 
-A [Lua-only backup investigation](docs/save-byte-investigation.md) has now obtained character bytes through Wilds' built-in MessagePack serializer and verified a byte-identical detached-object round trip on copied saves. Gameplay recovery and complete native-container export remain unvalidated. This is developer research, not yet integrated into the mod; the setup below describes the existing companion prototype.
+A [Lua-only backup investigation](../save-byte-investigation.md) has now obtained character bytes through Wilds' built-in MessagePack serializer and verified a byte-identical detached-object round trip on copied saves. Gameplay recovery and complete native-container export remain unvalidated. This is developer research, not yet integrated into the mod; the setup below describes the existing companion prototype.
 
 ## Environment and requirements
 
@@ -49,13 +51,13 @@ Disable Cloud for Wilds, set Steam Offline Mode, and fully exit Wilds and Steam.
   -GameDirectory 'C:\Program Files (x86)\Steam\steamapps\common\MonsterHunterWilds' `
   -CloudDisabled -SteamOffline
 
-.\scripts\SaveCompanion.ps1 -Action Initialize `
+.\legacy\companion\SaveCompanion.ps1 -Action Initialize `
   -SessionDirectory 'D:\save-tests\session-001' -Slots 3
 
 .\scripts\SaveSandbox.ps1 -Action Arm `
   -SessionDirectory 'D:\save-tests\session-001'
 
-.\scripts\SaveCompanion.ps1 -Action Watch `
+.\legacy\companion\SaveCompanion.ps1 -Action Watch `
   -SessionDirectory 'D:\save-tests\session-001'
 ```
 
@@ -99,8 +101,8 @@ Trimming uses the game's serializer; it does not cut bytes from an encrypted fil
 To inspect the backup ledger or export an immutable snapshot to a **new** directory:
 
 ```powershell
-.\scripts\SaveCompanion.ps1 -Action Status -SessionDirectory 'D:\save-tests\session-001'
-.\scripts\SaveCompanion.ps1 -Action Export `
+.\legacy\companion\SaveCompanion.ps1 -Action Status -SessionDirectory 'D:\save-tests\session-001'
+.\legacy\companion\SaveCompanion.ps1 -Action Export `
   -SessionDirectory 'D:\save-tests\session-001' `
   -Snapshot 'SNAPSHOT_ID_FROM_LEDGER' -Destination 'D:\save-recovery\export-001'
 ```
@@ -123,20 +125,20 @@ Only remove the loader and its module folder after restoring ordinary saves or v
 
 ## Evidence and checks
 
-The original four-character implementation (commit `3b1cc0c`) cloned Gupta/Kirikau, audited 76,760 mutable objects on each side with zero shared objects, entered the Grand Hub, saved, and loaded the fourth record in a fresh process. A native-range startup followed by saving with the mod absent shrank the file from 858,988 to 595,260 bytes, strongly indicating loss of that fourth entry; see the [absence test](docs/native-compatibility-test.md).
+The original four-character implementation (commit `3b1cc0c`) cloned Gupta/Kirikau, audited 76,760 mutable objects on each side with zero shared objects, entered the Grand Hub, saved, and loaded the fourth record in a fresh process. A native-range startup followed by saving with the mod absent shrank the file from 858,988 to 595,260 bytes, strongly indicating loss of that fourth entry; see the [absence test](native-compatibility-test.md).
 
 Focused checks for the new implementation:
 
 ```powershell
 .\scripts\Test-SaveSandbox.ps1
-.\scripts\Test-SaveCompanion.ps1
+.\legacy\companion\Test-SaveCompanion.ps1
 lua tests/test_safety.lua  # Lua 5.3+; Fengari also supported
 git diff --check
 ```
 
 Tests cover index separation, 5/16-entry destination growth, fresh initialization, backup acknowledgement gates, trim preparation and confirmation, unchanged native references, immutable expanded snapshots, replay, wrong-session data, corruption, and unclassified saves. An optional `-CopiedSaveDirectory` on Test-SaveCompanion checks exact byte preservation using another copy of retained saves; it does not run the game. The installed safety hooks use this build's named methods and named success enum constants, failing initialization when required metadata is unavailable.
 
-Long-term progression, every game save path, capacities above five, and an expanded five-entry boot with this mod absent need further validation. The successful absence test for this implementation used its trimmed three-entry result; the earlier four-entry absence test used a manually selected native index. The user reported minor creation-screen visual artifacts of unknown cause. [Current validation record](docs/safeguards-validation.md) separates observed results from mocks. No claim of universal save safety or game-version compatibility is made.
+Long-term progression, every game save path, capacities above five, and an expanded five-entry boot with this mod absent need further validation. The successful absence test for this implementation used its trimmed three-entry result; the earlier four-entry absence test used a manually selected native index. The user reported minor creation-screen visual artifacts of unknown cause. [Current validation record](safeguards-validation.md) separates observed results from mocks. No claim of universal save safety or game-version compatibility is made.
 
 ## References
 

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version='0.3.0',[string]$OutputDirectory)
+param([string]$Version='1.0',[string]$OutputDirectory)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if($Version -notmatch '^[0-9A-Za-z.-]+$'){throw 'Invalid package version.'}

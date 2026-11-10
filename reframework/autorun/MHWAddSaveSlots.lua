@@ -1,11 +1,15 @@
 -- Restart Wilds after updating these files. Hot reload is intentionally absent:
 -- replacing a stateful save hook midway through a transaction is unsafe.
 local loaded={}
-for _,name in ipairs({"probe","compat","poc"}) do
+local safety
+for _,name in ipairs({"preservation","poc"}) do
     local ok,module=pcall(require,"MHWAddSaveSlots."..name)
-    if ok then loaded[#loaded+1]=module else
+    if ok then
+        if name=="preservation" then safety=module else module.configure(safety) end
+        loaded[#loaded+1]=module
+    else
         log.error("MHWAddSaveSlots."..name..": "..tostring(module))
-        if name=="compat" then
+        if name=="preservation" then
             local error_message=tostring(module)
             re.on_draw_ui(function() imgui.text("MHWAddSaveSlots unavailable: "..error_message) end)
             break

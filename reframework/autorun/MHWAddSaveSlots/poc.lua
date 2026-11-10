@@ -2,13 +2,16 @@ local M={}
 local control=require("MHWAddSaveSlots.control")
 local policy=require("MHWAddSaveSlots.policy")
 local records=require("MHWAddSaveSlots.records")
-local safety=require("MHWAddSaveSlots.compat")
+local safety
+function M.configure(backend) safety=assert(backend) end
 local pending,last_poll=nil,0
 local message="Experimental character library: copied saves only"
 local view={slots={},isolated=false,title=false}
 local clone_source,hunter,palico=1,"Gupta","Kirikau"
 local font=imgui.load_font(nil,28)
 local position_window=true
+local archive_index,archive_entry=1,1
+local activation_confirm=false
 local stale=control.read("command")
 local processed={}
 if stale.id and stale.session_id then processed[stale.session_id..":"..stale.id]=true end
@@ -79,6 +82,11 @@ local function append(request, fresh)
     message=fresh and "Empty entry added. Choose Create new to open the native editor." or "Clone attached. Load it and save normally."
 end
 local actions={
+    activate=function() safety.activate(); message="Library enabled. Initial character snapshot verified."; activation_confirm=false end,
+    restore=function(r)
+        local index=safety.restore_character(r.snapshot,r.entry)
+        message="Recovered into entry "..(index+1)..". Load it and save normally."
+    end,
     append_clone=function(r) append(r,false) end,
     append_fresh=function(r) append(r,true) end,
     load=function(r) select_character(assert(r.index),false) end,
@@ -92,8 +100,8 @@ function M.update()
         last_poll=os.clock()
         local session=control.read("session")
         local manager,_,slots,state=records.context()
-        view.isolated=session.isolated==true
-        view.enabled=control.enabled(session)
+        view.isolated=session.isolated==true or (safety.enabled and safety.enabled())
+        view.enabled=safety.enabled and safety.enabled() or control.enabled(session)
         view.title=state and state:get_type_definition():get_full_name()=="app.TitleState"
         view.current=manager and manager:get_field("CurrentUserDataIndex") or -1
         view.slots={}
@@ -121,12 +129,25 @@ local function panel()
     local status,event,trim,fault=safety.state()
     imgui.text(message)
     imgui.text("Characters: "..#view.slots.." / "..policy.MAX_SLOTS.." | Current index: "..tostring(view.current))
-    imgui.text(fault or status.error or (status.ready and "Backup companion ready" or "Backup companion required"))
+    imgui.text(fault or status.error or (status.ready and "Local backups ready" or "Read-only: library not enabled"))
+    if status.notice then imgui.text(status.notice) end
     if event then imgui.text("Last save: "..event.phase..(status.ack==event.id and " / backup verified" or " / awaiting backup")) end
     if trim then imgui.text("Trim: "..trim.stage) end
     imgui.text("Copied saves only. Clones retain source online identity.")
     local input_open=reframework:is_drawing_ui()
     if not input_open then imgui.text("Press Insert to interact with this selector.") end
+    if not view.enabled and safety.activate then
+        imgui.text("First setup requires a separate three-character save copy and Steam Cloud disabled.")
+        imgui.begin_disabled(not input_open or not view.title or pending~=nil)
+        if not activation_confirm then
+            if imgui.button("Set up this copied save") then activation_confirm=true end
+        else
+            imgui.text("Confirm that your originals are preserved separately and this is a test copy.")
+            if imgui.button("Confirm copied save and enable") then pending={action="activate"} end
+            if imgui.button("Cancel setup") then activation_confirm=false end
+        end
+        imgui.end_disabled()
+    end
     imgui.begin_disabled(not input_open or not view.enabled or pending~=nil or fault~=nil)
     if view.title then
         for _,slot in ipairs(view.slots) do
@@ -140,6 +161,23 @@ local function panel()
             changed,hunter=imgui.input_text("Clone hunter name",hunter)
             changed,palico=imgui.input_text("Clone Palico name",palico)
             if imgui.button("Add independent clone") then pending={action="append_clone",source=clone_source,hunter=hunter,palico=palico} end
+        end
+        if safety.catalog then
+            local catalog=safety.catalog()
+            local room=#view.slots<policy.MAX_SLOTS
+            for _,slot in ipairs(view.slots) do if slot.index>=3 and not slot.active then room=true end end
+            if #catalog>0 and room and imgui.tree_node("Recover an archived character") then
+                archive_index=math.max(1,math.min(archive_index,#catalog))
+                local changed
+                changed,archive_index=imgui.slider_int("Snapshot (1 is newest)",archive_index,1,#catalog)
+                local selected=catalog[archive_index]
+                imgui.text(tostring(selected.utc).." | "..selected.slots.." entries | "..tostring(selected.label))
+                imgui.text(selected.committed and "Native save completed" or "Captured before a save or change; completion unconfirmed")
+                archive_entry=math.max(1,math.min(archive_entry,selected.slots))
+                changed,archive_entry=imgui.slider_int("Character in snapshot",archive_entry,1,selected.slots)
+                if imgui.button("Restore into an extra entry") then pending={action="restore",snapshot=selected.id,entry=archive_entry-1} end
+                imgui.tree_pop()
+            end
         end
     end
     if not trim or trim.stage=="complete" or trim.stage=="cancelled" then

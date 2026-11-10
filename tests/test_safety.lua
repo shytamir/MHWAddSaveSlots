@@ -188,6 +188,7 @@ sdk.get_managed_singleton=function(name) return name=="app.GUIManager" and gui_m
 re={on_frame=function() end}
 imgui={load_font=function() return nil end}
 local selector=require("MHWAddSaveSlots.poc")
+selector.configure(require("MHWAddSaveSlots.compat"))
 local native_before={root.fields._Data[0],root.fields._Data[1],root.fields._Data[2]}
 files.command={session_id="test",id="new-empty",action="append_fresh"}
 now=now+1;selector.update()

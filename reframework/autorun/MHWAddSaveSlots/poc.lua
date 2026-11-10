@@ -5,7 +5,7 @@ local records=require("MHWAddSaveSlots.records")
 local safety
 function M.configure(backend) safety=assert(backend) end
 local pending,last_poll=nil,0
-local message="Experimental character library: copied saves only"
+local message="Add Save Slots"
 local view={slots={},isolated=false,title=false}
 local clone_source,hunter,palico=1,"Gupta","Kirikau"
 local font=imgui.load_font(nil,28)
@@ -48,7 +48,7 @@ end
 local function append(request, fresh)
     local manager,root,slots=guard()
     local count=slots:get_size()
-    assert(count<policy.MAX_SLOTS,"Experimental capacity limit reached")
+    assert(count<policy.MAX_SLOTS,"Character capacity limit reached")
     local record=records.new()
     if fresh then
         assert(record:get_field("Active")==0,"Initializer did not produce an empty record; refusing attachment")
@@ -133,17 +133,17 @@ local function panel()
     if status.notice then imgui.text(status.notice) end
     if event then imgui.text("Last save: "..event.phase..(status.ack==event.id and " / backup verified" or " / awaiting backup")) end
     if trim then imgui.text("Trim: "..trim.stage) end
-    imgui.text("Copied saves only. Clones retain source online identity.")
+    imgui.text("Clones retain source online identity.")
     local input_open=reframework:is_drawing_ui()
     if not input_open then imgui.text("Press Insert to interact with this selector.") end
     if not view.enabled and safety.activate then
-        imgui.text("First setup requires a separate three-character save copy and Steam Cloud disabled.")
+        imgui.text("First setup requires three native save slots and a separate backup.")
         imgui.begin_disabled(not input_open or not view.title or pending~=nil)
         if not activation_confirm then
-            if imgui.button("Set up this copied save") then activation_confirm=true end
+            if imgui.button("Set up Add Save Slots") then activation_confirm=true end
         else
-            imgui.text("Confirm that your originals are preserved separately and this is a test copy.")
-            if imgui.button("Confirm copied save and enable") then pending={action="activate"} end
+            imgui.text("Confirm that you have preserved a separate backup of your save directory.")
+            if imgui.button("Confirm backup and enable") then pending={action="activate"} end
             if imgui.button("Cancel setup") then activation_confirm=false end
         end
         imgui.end_disabled()
@@ -183,7 +183,7 @@ local function panel()
     if not trim or trim.stage=="complete" or trim.stage=="cancelled" then
         if #view.slots>3 and imgui.button("Prepare trim: save and back up all characters") then pending={action="prepare_trim"} end
     elseif trim.stage=="ready" then
-        imgui.text("Expanded backup verified. Keep only entries 1-3 in the active test save?")
+        imgui.text("Expanded backup verified. Keep only entries 1-3 in the active save?")
         if imgui.button("Confirm trim to three characters") then pending={action="confirm_trim"} end
         if imgui.button("Cancel trim") then pending={action="cancel_trim"} end
     elseif trim.stage=="backing-up" then
@@ -193,7 +193,7 @@ local function panel()
 end
 function M.draw()
     if font then imgui.push_font(font) end
-    if imgui.tree_node("Wilds expanded characters") then
+    if imgui.tree_node("Add Save Slots") then
         local ok,err=pcall(panel)
         if not ok then imgui.text(tostring(err)) end
         imgui.tree_pop()
@@ -208,7 +208,7 @@ re.on_frame(function()
         position_window=false
     end
     if font then imgui.push_font(font) end
-    imgui.begin_window("Wilds expanded characters (experimental)",nil,0)
+    imgui.begin_window("Add Save Slots",nil,0)
     local ok,err=pcall(panel)
     if not ok then imgui.text(tostring(err)) end
     imgui.end_window()

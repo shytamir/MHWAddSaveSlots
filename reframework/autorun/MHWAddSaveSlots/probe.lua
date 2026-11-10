@@ -168,7 +168,7 @@ function M.update()
     end
 end
 function M.draw()
-    if imgui.tree_node("Wilds fourth character (experimental)") then
+    if imgui.tree_node("Add Save Slots - Diagnostics") then
         imgui.text("This diagnostics panel is read-only")
         imgui.text(last_status)
         if imgui.button("Capture save and loader APIs") then requested=true end

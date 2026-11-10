@@ -84,7 +84,7 @@ Before replacing the companion implementation, test restoring an archived charac
 
 ## Cleanup and checks
 
-The user closed Wilds and Steam after testing. `SaveSandbox.ps1 -Action Restore` retained the experimental directory, restored the original directory, verified all **41 original files**, and disabled the isolation/mutation marker. The temporary entry-point autorun probe was removed after its capture. Runtime dumps, snapshots, hashes, and session journals remain private and outside Git.
+The user closed Wilds and Steam after testing. `SaveSandbox.ps1 -Action Restore` retained the test directory, restored the original directory, verified all **41 original files**, and disabled the isolation/mutation marker. The temporary entry-point autorun probe was removed after its capture. Runtime dumps, snapshots, hashes, and session journals remain private and outside Git.
 
 The four developer Lua probes passed syntax checks with the existing Fengari runner. `git diff --check` passed. These checks are separate from the live results above. The production mod and existing PowerShell tests were not changed; no production regression suite was rerun for these developer probes.
 
